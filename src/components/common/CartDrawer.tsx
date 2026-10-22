@@ -1172,7 +1172,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                       type="button"
                       onClick={() => lookupCustomer(formData.phone, true)}
                       disabled={isLookingUpCustomer || formData.phone.replace(/\D/g, '').length < 10}
-                      className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
+                      className="px-2 py-0.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-[10px] rounded-lg flex items-center gap-1 transition cursor-pointer shadow-xs shrink-0"
                       title="Click to auto-fetch customer details from previous orders"
                     >
                       {isLookingUpCustomer ? (
