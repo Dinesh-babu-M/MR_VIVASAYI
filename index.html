@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- ─── Primary Meta ───────────────────────────────────────────── -->
+    <title>MR. VIVASAYI – Organic & Natural Foods</title>
+    <meta name="description" content="MR. VIVASAYI brings you premium natural & traditional foods — cold-pressed oils, A2 ghee, wild honey, and direct farm products. Pure ingredients. Real nutrition." />
+    <meta name="keywords" content="MR. VIVASAYI, natural food, traditional food, cold pressed oil, A2 ghee, wild honey, organic, farm products India" />
+    <meta name="author" content="MR. VIVASAYI" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#1B4D3E" />
+
+    <!-- ─── Favicon ─────────────────────────────────────────────────── -->
+    <link rel="icon" href="/mr-vivasayi-logo.png" />
+    <link rel="apple-touch-icon" href="/mr-vivasayi-logo.png" />
+
+    <!-- ─── Open Graph ───────────────────────────────────────────────── -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://mrvivasayi.in/" />
+    <meta property="og:title" content="MR. VIVASAYI – Organic & Natural Foods" />
+    <meta property="og:description" content="Premium natural & traditional foods — cold-pressed oils, A2 ghee, wild honey, and more. Pure ingredients. Real nutrition." />
+    <meta property="og:image" content="https://mrvivasayi.in/mr-vivasayi-logo.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="MR. VIVASAYI – Organic & Natural Foods" />
+    <meta property="og:site_name" content="MR. VIVASAYI" />
+    <meta property="og:locale" content="en_IN" />
+
+    <!-- ─── Twitter / X Card ────────────────────────────────────────── -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@mrvivasayi" />
+    <meta name="twitter:creator" content="@mrvivasayi" />
+    <meta name="twitter:title" content="MR. VIVASAYI – Organic & Natural Foods" />
+    <meta name="twitter:description" content="Premium natural & traditional foods. Cold-pressed oils, A2 ghee, wild honey. Pure. Real. MR. VIVASAYI." />
+    <meta name="twitter:image" content="https://mrvivasayi.in/mr-vivasayi-logo.png" />
+
+    <!-- ─── Canonical ───────────────────────────────────────────────── -->
+    <link rel="canonical" href="https://mrvivasayi.in/" />
+
+    <!-- ─── Google Fonts ───────────────────────────────────────────── -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- ─── CSS Design Tokens ────────────────────────────────────────── -->
+    <style>
+      :root {
+        /* Brand Palette */
+        --color-primary:        #1B4D3E;
+        --color-primary-dark:   #0F2E25;
+        --color-cream:          #FAEDCD;
+        --color-earth:          #6B4226;
+        --color-accent:         #E76F51;
+
+        /* Light Mode Surfaces */
+        --color-background:     #FFFFFF;
+        --color-surface:        #F8FAF9;
+        --color-border:         #E2EDE9;
+
+        /* Light Mode Text */
+        --color-text-primary:   #0F2E25;
+        --color-text-secondary: #4A6741;
+      }
+
+      /* Dark Mode Tokens */
+      .dark {
+        --color-background:     #121816;
+        --color-surface:        #1A2420;
+        --color-border:         #2A3D38;
+        --color-text-primary:   #F0F7F4;
+        --color-text-secondary: #8BAF9E;
+      }
+
+      /* ── Global Resets & Base Styles ─────────────────────────────── */
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+        tab-size: 4;
+      }
+
+      body {
+        margin: 0;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont,
+                     'Segoe UI', sans-serif;
+        font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+        background-color: var(--color-background);
+        color: var(--color-text-primary);
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      #root {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background-color: var(--color-primary);
+        border-radius: 9999px;
+        opacity: 0.5;
+      }
+
+      ::-webkit-scrollbar-thumb:hover {
+        background-color: var(--color-primary-dark);
+      }
+
+      ::selection {
+        background-color: rgba(27, 77, 62, 0.2);
+        color: var(--color-primary-dark);
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--color-primary);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+
+      #app-loader {
+        position: fixed;
+        inset: 0;
+        background: #FAEDCD;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        transition: opacity 0.4s ease, visibility 0.4s ease;
+      }
+
+      #app-loader.hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      #app-loader .loader-brand {
+        font-family: 'Playfair Display', Georgia, serif;
+        font-size: 2rem;
+        font-weight: 800;
+        color: #1B4D3E;
+        letter-spacing: 0.1em;
+        animation: loaderPulse 1.2s ease-in-out infinite;
+      }
+
+      @keyframes loaderPulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50%       { opacity: 0.65; transform: scale(0.97); }
+      }
+    </style>
+
+    <!-- ─── Structured Data ──────────────────────────────────────────── -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "MR. VIVASAYI",
+      "url": "https://mrvivasayi.in",
+      "logo": "https://mrvivasayi.in/mr-vivasayi-logo.png",
+      "description": "Premium natural & traditional organic food brand by MR. VIVASAYI.",
+      "sameAs": [
+        "https://www.instagram.com/mrvivasayi",
+        "https://www.facebook.com/mrvivasayi"
+      ],
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "contactType": "customer service",
+        "availableLanguage": ["English", "Tamil"]
+      }
+    }
+    </script>
+  </head>
+
+  <body>
+    <!-- ─── Initial Loading Screen ───────────────────────────────────── -->
+    <div id="app-loader" aria-hidden="true">
+      <div class="loader-brand flex items-center gap-3">
+        <img src="/mr-vivasayi-logo.png" alt="MR. VIVASAYI" class="w-12 h-12 rounded-full border-2 border-emerald-700" />
+        <span>MR. VIVASAYI</span>
+      </div>
+    </div>
+
+    <!-- ─── React App Root ───────────────────────────────────────────── -->
+    <div id="root"></div>
+
+    <!-- ─── Dismiss Loader Once React Mounts ────────────────────────── -->
+    <script>
+      (function () {
+        var observer = new MutationObserver(function (mutations) {
+          mutations.forEach(function (mutation) {
+            if (mutation.addedNodes.length > 0) {
+              var loader = document.getElementById('app-loader');
+              if (loader) {
+                loader.classList.add('hidden');
+                setTimeout(function () { loader.remove(); }, 450);
+              }
+              observer.disconnect();
+            }
+          });
+        });
+        observer.observe(document.getElementById('root'), { childList: true });
+      })();
+    </script>
+
+    <!-- ─── Entry Point ──────────────────────────────────────────────── -->
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
