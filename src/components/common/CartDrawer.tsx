@@ -3,7 +3,7 @@ import {
   X, Trash2, Plus, Minus, MessageSquare, ShoppingBag, ArrowRight,
   ShieldCheck, ArrowLeft, User, Phone, Mail, MapPin, Building,
   FileText, CheckCircle2, Scale, Truck, Ticket, Timer, ExternalLink,
-  ChevronDown, ChevronUp, AlertCircle, Sparkles, Loader2
+  ChevronDown, ChevronUp, AlertCircle, Sparkles, Loader2, RotateCcw, Globe, Compass
 } from 'lucide-react';
 import { useCart } from '../../contexts/CartContext';
 import { formatPrice } from '../../lib/utils';
@@ -30,7 +30,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
   // Step State: 'CART' | 'CHECKOUT_FORM' | 'ORDER_PREVIEW' | 'SUCCESS'
   const [drawerStep, setDrawerStep] = useState<'CART' | 'CHECKOUT_FORM' | 'ORDER_PREVIEW' | 'SUCCESS'>('CART');
 
-  // Customer Delivery Details Form State
+  // Customer Delivery Details Form State — No default values for City, District, State, Pincode
   const [formData, setFormData] = useState({
     fullName: '',
     phone: '',
@@ -38,9 +38,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
     calling_code: '+91',
     email: '',
     address: '',
-    city: 'Cumbum',
-    state: 'Tamil Nadu',
-    pincode: '625516',
+    district: '',
+    city: '',
+    state: '',
+    pincode: '',
     notes: ''
   });
 
@@ -54,8 +55,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
     message: string;
   } | null>(null);
 
-  // Pincode auto-fetch for City & State
+  // Pincode auto-fetch for State, District & City
   const [isLookingUpPincode, setIsLookingUpPincode] = useState(false);
+  const [pincodeLocalities, setPincodeLocalities] = useState<string[]>([]);
+  const [isManualAddressMode, setIsManualAddressMode] = useState(false);
   const [pincodeFeedback, setPincodeFeedback] = useState<{
     type: 'loading' | 'success' | 'warning';
     message: string;
@@ -78,25 +81,22 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
 
         const matched = findCustomerByPhoneAndCountry(customers, rawDigits, formData.calling_code);
         if (matched && matched.name) {
-          // Customer exists in DB! Auto-fetch name and address fields if they are blank or default
+          // Customer exists in DB! Auto-fetch name and address fields if currently empty
           setFormData(prev => ({
             ...prev,
             fullName: prev.fullName.trim() ? prev.fullName : matched.name,
             address: prev.address.trim() ? prev.address : (matched.address || prev.address),
-            city: (prev.city && prev.city !== 'Cumbum') ? prev.city : (matched.city || prev.city),
-            pincode: (prev.pincode && prev.pincode !== '625516') ? prev.pincode : (matched.pincode || prev.pincode),
+            district: (prev.district || '').trim() ? prev.district : ((matched as any).district || matched.area || ''),
+            city: prev.city.trim() ? prev.city : (matched.city || ''),
+            pincode: prev.pincode.trim() ? prev.pincode : (matched.pincode || ''),
             email: prev.email.trim() ? prev.email : (matched.email || prev.email),
-            state: matched.state ? (
-              ['Cumbum Store / Local', 'Theni District', 'Tamil Nadu', 'Other States'].includes(matched.state)
-                ? matched.state
-                : prev.state
-            ) : prev.state
+            state: prev.state.trim() ? prev.state : (matched.state || '')
           }));
 
           setCustomerLookupStatus({
             type: 'found',
             customerName: matched.name,
-            message: `Welcome back, ${matched.name}! ✨ We've auto-filled your details from your customer profile.`
+            message: `Welcome back, ${matched.name}! ✨ We've auto-filled your delivery details from your profile.`
           });
 
           // Clear any validation errors
@@ -126,114 +126,138 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
     };
   }, [formData.phone, formData.calling_code]);
 
-  // Auto-fetch City and State when 6-digit Pincode is entered
+  // Primary Pincode lookup function (callable automatically or manually via "Click to fetch again" button)
+  const lookupPincode = async (rawPin: string, force = false) => {
+    const cleanPin = (rawPin || '').replace(/\D/g, '');
+    if (cleanPin.length !== 6) {
+      if (force) {
+        setPincodeFeedback({
+          type: 'warning',
+          message: 'Please enter a complete 6-digit Indian Pincode to fetch details.'
+        });
+      }
+      return;
+    }
+
+    setIsLookingUpPincode(true);
+    setPincodeFeedback({
+      type: 'loading',
+      message: `Connecting to Postal API for Pincode ${cleanPin}... 📍`
+    });
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    try {
+      const res = await fetch(`https://api.postalpincode.in/pincode/${cleanPin}`, {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      const data = await res.json();
+
+      if (
+        Array.isArray(data) &&
+        data[0]?.Status === 'Success' &&
+        Array.isArray(data[0]?.PostOffice) &&
+        data[0].PostOffice.length > 0
+      ) {
+        const offices = data[0].PostOffice;
+        const primary = offices[0];
+        const detectedState = primary.State || 'Tamil Nadu';
+        const detectedDistrict = primary.District || '';
+
+        // Extract and clean distinct locality names
+        const localities = Array.from(new Set(
+          offices.map((po: any) => (po.Name || '').replace(/\s*\([^)]*\)/g, '').trim()).filter(Boolean)
+        )) as string[];
+
+        setPincodeLocalities(localities);
+
+        const detectedCity = localities[0] || primary.District || primary.Name || '';
+
+        // Determine delivery rate category based on detected state/district
+        let mappedState = detectedState;
+        const stateLower = detectedState.toLowerCase();
+        const districtLower = detectedDistrict.toLowerCase();
+        const nameLower = (primary.Name || '').toLowerCase();
+
+        if (stateLower.includes('tamil')) {
+          if (districtLower.includes('theni') && (nameLower.includes('cumbum') || cleanPin === '625516')) {
+            mappedState = 'Cumbum Store / Local';
+          } else if (districtLower.includes('theni')) {
+            mappedState = 'Theni District';
+          } else {
+            mappedState = 'Tamil Nadu';
+          }
+        } else {
+          mappedState = 'Other States';
+        }
+
+        setFormData(prev => ({
+          ...prev,
+          state: mappedState,
+          district: detectedDistrict,
+          city: detectedCity,
+          pincode: cleanPin
+        }));
+
+        setPincodeFeedback({
+          type: 'success',
+          message: `Auto-fetched: ${detectedCity}, ${detectedDistrict} Dist., ${detectedState} ✓`
+        });
+
+        // Clear any validation errors for pincode, city, state
+        setFormErrors(prev => {
+          const next = { ...prev };
+          delete next.pincode;
+          delete next.city;
+          delete next.state;
+          return next;
+        });
+      } else {
+        setPincodeLocalities([]);
+        setPincodeFeedback({
+          type: 'warning',
+          message: `No postal records found for "${cleanPin}". Click below to re-fetch or enter manually.`
+        });
+      }
+    } catch (err: any) {
+      setPincodeLocalities([]);
+      setPincodeFeedback({
+        type: 'warning',
+        message: `Could not auto-fetch city & state for "${cleanPin}". Click below to try again or enter manually.`
+      });
+    } finally {
+      setIsLookingUpPincode(false);
+    }
+  };
+
+  // Auto-fetch State, District & City when 6-digit Indian Pincode is entered
   useEffect(() => {
+    if (isManualAddressMode) return;
+    if (formData.country_code && formData.country_code !== 'IN') {
+      setPincodeFeedback(null);
+      setPincodeLocalities([]);
+      return;
+    }
+
     const cleanPin = formData.pincode.replace(/\D/g, '');
     if (cleanPin.length !== 6) {
       if (cleanPin.length < 6) {
         setPincodeFeedback(null);
+        setPincodeLocalities([]);
       }
       return;
     }
 
-    // Only lookup for Indian pincodes
-    if (formData.country_code && formData.country_code !== 'IN') {
-      return;
-    }
+    const debounceTimer = setTimeout(() => {
+      lookupPincode(cleanPin, false);
+    }, 400);
 
-    let isMounted = true;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-    const lookupPincode = async () => {
-      setIsLookingUpPincode(true);
-      setPincodeFeedback({
-        type: 'loading',
-        message: `Detecting city & state for ${cleanPin}...`
-      });
-
-      try {
-        const res = await fetch(`https://api.postalpincode.in/pincode/${cleanPin}`, {
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) throw new Error('Network error');
-        const data = await res.json();
-        if (!isMounted) return;
-
-        if (
-          Array.isArray(data) &&
-          data[0]?.Status === 'Success' &&
-          Array.isArray(data[0]?.PostOffice) &&
-          data[0].PostOffice.length > 0
-        ) {
-          const po = data[0].PostOffice[0];
-          const detectedCity = po.District || po.Name || po.Block || '';
-          const detectedState = po.State || '';
-
-          // Determine appropriate state category for delivery fee
-          let mappedState = 'Other States';
-          const stateLower = (detectedState || '').toLowerCase();
-          const districtLower = (po.District || '').toLowerCase();
-          const nameLower = (po.Name || '').toLowerCase();
-
-          if (stateLower.includes('tamil nadu') || stateLower.includes('tamilnadu')) {
-            if (districtLower.includes('theni') && (nameLower.includes('cumbum') || cleanPin === '625516')) {
-              mappedState = 'Cumbum Store / Local';
-            } else if (districtLower.includes('theni')) {
-              mappedState = 'Theni District';
-            } else {
-              mappedState = 'Tamil Nadu';
-            }
-          } else {
-            mappedState = 'Other States';
-          }
-
-          setFormData(prev => ({
-            ...prev,
-            city: detectedCity || prev.city,
-            state: mappedState
-          }));
-
-          setPincodeFeedback({
-            type: 'success',
-            message: `Auto-detected: ${detectedCity}, ${detectedState} ✓`
-          });
-
-          // Clear errors on pincode and city
-          setFormErrors(prev => {
-            const next = { ...prev };
-            delete next.pincode;
-            delete next.city;
-            return next;
-          });
-        } else {
-          setPincodeFeedback({
-            type: 'warning',
-            message: 'Could not auto-fetch city & state for this pincode. Please enter manually.'
-          });
-        }
-      } catch (err) {
-        if (!isMounted) return;
-        setPincodeFeedback({
-          type: 'warning',
-          message: 'Could not auto-fetch city & state. Please enter manually below.'
-        });
-      } finally {
-        if (isMounted) setIsLookingUpPincode(false);
-      }
-    };
-
-    const debounceTimer = setTimeout(lookupPincode, 400);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(debounceTimer);
-      clearTimeout(timeoutId);
-      controller.abort();
-    };
-  }, [formData.pincode, formData.country_code]);
+    return () => clearTimeout(debounceTimer);
+  }, [formData.pincode, formData.country_code, isManualAddressMode]);
 
   const [couponInput, setCouponInput] = useState('');
   const [couponError, setCouponError] = useState('');
@@ -511,7 +535,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
   }, 0);
 
   // Dynamic Delivery Charge Calculation based on Order Amount & State
-  const deliveryFee = totalAmount >= 1000 ? 0 : (formData.state === 'Cumbum Store / Local' ? 25 : (formData.state === 'Tamil Nadu' || formData.state === 'Theni District') ? 50 : 90);
+  const isLocal = formData.state === 'Cumbum Store / Local' || (formData.city.toLowerCase().includes('cumbum') && formData.pincode === '625516');
+  const isTN = isLocal || formData.state === 'Tamil Nadu' || formData.state === 'Theni District' || formData.state.toLowerCase().includes('tamil');
+  const deliveryFee = totalAmount >= 1000 ? 0 : (isLocal ? 25 : isTN ? 50 : 90);
   const grandTotal = totalAmount + deliveryFee;
 
   if (!isOpen) return null;
@@ -522,7 +548,23 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
     if (!formData.phone.trim() || formData.phone.length < 10) errors.phone = 'Valid 10-digit WhatsApp/Phone required';
     if (!formData.address.trim()) errors.address = 'Street / Delivery Address is required';
     if (!formData.city.trim()) errors.city = 'City / Town is required';
-    if (!formData.pincode.trim() || formData.pincode.length < 6) errors.pincode = 'Valid 6-digit Pincode is required';
+
+    if (formData.country_code === 'IN' && !isManualAddressMode) {
+      if (!formData.pincode.trim() || formData.pincode.replace(/\D/g, '').length !== 6) {
+        errors.pincode = 'Valid 6-digit Pincode is required';
+      }
+      if (!formData.state.trim()) {
+        errors.state = 'State / Region is required';
+      }
+    } else {
+      if (!formData.pincode.trim()) {
+        errors.pincode = 'Postal / Zip Code is required';
+      }
+      if (!formData.state.trim()) {
+        errors.state = 'State / Province is required';
+      }
+    }
+
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -632,6 +674,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
         await setJSONStore('customers', [newCust, ...existingCustomers]);
       }
 
+      const deliveryAddressFormatted = [
+        formData.address,
+        formData.city,
+        formData.district ? `${formData.district} Dist.` : '',
+        formData.state,
+        formData.pincode
+      ].filter(Boolean).join(', ');
+
       const createdOrder: Order = {
         id: liveIdObj.id,
         order_number: newOrderNumber,
@@ -650,7 +700,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
         total: grandTotal,
         payment_method: 'PENDING',
         payment_status: 'PENDING',
-        delivery_address: `${formData.address}, ${formData.city}, ${formData.state} - ${formData.pincode}`,
+        delivery_address: deliveryAddressFormatted,
         notes: formData.notes ? `Customer Note: ${formData.notes}` : undefined,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -685,7 +735,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
 👤 *CUSTOMER DETAILS:*
 • *Name:* ${formData.fullName}
 • *Phone:* ${formData.calling_code} ${formData.phone}
-${formData.email ? `• *Email:* ${formData.email}\n` : ''}• *Delivery Address:* ${formData.address}, ${formData.city}, ${formData.state} - ${formData.pincode}
+${formData.email ? `• *Email:* ${formData.email}\n` : ''}• *Delivery Address:* ${deliveryAddressFormatted}
 ${formData.notes ? `• *Customer Note:* ${formData.notes}\n` : ''}
 ----------------------------------------
 🛒 *ORDER ITEMS (${items.length}):*
@@ -1042,114 +1092,322 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                   </div>
                 </div>
 
-                {/* Delivery Address */}
-                <div>
-                  <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1">
-                    Street / House / Delivery Address *
-                  </label>
-                  <div className="relative">
-                    <MapPin className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
-                    <input
-                      type="text"
-                      placeholder="e.g. Door 45, Main Bazaar Street"
-                      value={formData.address}
-                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                      className={`w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-bold text-gray-900 dark:text-emerald-100 ${
-                        formErrors.address ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
-                      }`}
-                    />
+                {/* Section Header: Delivery Country & Address */}
+                <div className="pt-2 border-t border-emerald-100 dark:border-emerald-800">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block font-bold text-gray-700 dark:text-emerald-200 text-xs">
+                      Delivery Country *
+                    </label>
+                    {formData.country_code === 'IN' ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsManualAddressMode(prev => !prev)}
+                        className="text-[11px] font-bold text-emerald-700 dark:text-amber-400 hover:underline cursor-pointer"
+                      >
+                        {isManualAddressMode ? 'Switch to India Pincode Auto-fetch 🇮🇳' : 'Non-Indian / Enter Manually ✍️'}
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>International (Manual Entry)</span>
+                      </span>
+                    )}
                   </div>
-                  {formErrors.address && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.address}</p>}
+                  <CountrySelector
+                    value={formData.country_code}
+                    onChange={(country) => {
+                      const isNonIndia = country.code !== 'IN';
+                      setFormData(prev => ({
+                        ...prev,
+                        country_code: country.code,
+                        calling_code: country.callingCode,
+                        state: isNonIndia ? '' : prev.state
+                      }));
+                      setIsManualAddressMode(isNonIndia);
+                      if (isNonIndia) {
+                        setPincodeFeedback(null);
+                        setPincodeLocalities([]);
+                      }
+                    }}
+                    className="w-full text-xs"
+                  />
                 </div>
 
-                {/* City, State & Pincode with Postal Auto-Fetch */}
-                <div className="space-y-2">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1">
-                        City / Town *
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Cumbum"
-                        value={formData.city}
-                        onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                        className={`w-full px-2.5 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-bold text-gray-900 dark:text-emerald-100 ${
-                          formErrors.city ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
-                        }`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1">
-                        State / Region
-                      </label>
-                      <select
-                        value={formData.state}
-                        onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                        className="w-full px-2 py-2 bg-gray-50 dark:bg-emerald-900/60 border border-gray-200 dark:border-emerald-700 rounded-xl font-bold text-emerald-950 dark:text-emerald-100 text-xs"
-                      >
-                        <option value="Cumbum Store / Local">Cumbum (Local Store)</option>
-                        <option value="Theni District">Theni District</option>
-                        <option value="Tamil Nadu">Tamil Nadu State</option>
-                        <option value="Other States">Other States (Pan-India)</option>
-                      </select>
-                    </div>
-
+                {/* If Indian and NOT manual mode: Show Pincode FIRST with Auto-fetch, then State, District, City */}
+                {formData.country_code === 'IN' && !isManualAddressMode ? (
+                  <>
+                    {/* Pincode Input with Auto-Fetch button */}
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label className="block font-bold text-gray-700 dark:text-emerald-200">
-                          Pincode *
+                        <label className="block font-bold text-gray-700 dark:text-emerald-200 text-xs">
+                          Pincode * (Enter 6 digits to auto-fetch State, District &amp; City)
                         </label>
                         {isLookingUpPincode && (
-                          <Loader2 className="w-3 h-3 text-emerald-600 dark:text-amber-400 animate-spin" />
+                          <span className="text-[10.5px] text-emerald-600 dark:text-amber-400 font-bold flex items-center gap-1">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            <span>Detecting location...</span>
+                          </span>
                         )}
                       </div>
-                      <input
-                        type="text"
-                        maxLength={6}
-                        placeholder="625516"
-                        value={formData.pincode}
-                        onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
-                        className={`w-full px-2.5 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-mono font-bold text-gray-900 dark:text-emerald-100 ${
-                          formErrors.pincode ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
-                        }`}
-                      />
-                    </div>
-                  </div>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Compass className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+                          <input
+                            type="text"
+                            maxLength={6}
+                            inputMode="numeric"
+                            placeholder="e.g. 625516"
+                            value={formData.pincode}
+                            onChange={(e) => setFormData({ ...formData, pincode: e.target.value.replace(/\D/g, '') })}
+                            className={`w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-mono font-bold text-gray-900 dark:text-emerald-100 ${
+                              formErrors.pincode ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
+                            }`}
+                          />
+                        </div>
 
-                  {/* Pincode Auto-fetch Feedback Banner */}
-                  {pincodeFeedback && (
-                    <div
-                      className={`p-2 rounded-xl text-[11px] flex items-center justify-between gap-2 transition-all animate-fadeIn ${
-                        pincodeFeedback.type === 'success'
-                          ? 'bg-emerald-50 dark:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200'
-                          : pincodeFeedback.type === 'warning'
-                          ? 'bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200'
-                          : 'bg-emerald-50/70 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        {pincodeFeedback.type === 'success' ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        ) : pincodeFeedback.type === 'warning' ? (
-                          <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        ) : (
-                          <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin shrink-0" />
-                        )}
-                        <span className="font-semibold">{pincodeFeedback.message}</span>
+                        {/* Explicit Auto-Fetch Button */}
+                        <button
+                          type="button"
+                          onClick={() => lookupPincode(formData.pincode, true)}
+                          disabled={isLookingUpPincode || formData.pincode.replace(/\D/g, '').length !== 6}
+                          className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
+                          title="Click to auto-fetch State, District and City from Indian Postal API"
+                        >
+                          {isLookingUpPincode ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                          )}
+                          <span>Auto-Fetch</span>
+                        </button>
                       </div>
-                      {pincodeFeedback.type === 'warning' && (
-                        <span className="text-[10px] font-black uppercase text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-900 px-2 py-0.5 rounded shrink-0">
-                          Manual Entry
-                        </span>
+                      {formErrors.pincode && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.pincode}</p>}
+
+                      {/* Pincode Feedback & "Click to fetch again" button */}
+                      {pincodeFeedback && (
+                        <div
+                          className={`mt-2 p-2.5 rounded-xl text-xs space-y-1.5 transition-all animate-fadeIn ${
+                            pincodeFeedback.type === 'success'
+                              ? 'bg-emerald-50 dark:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100'
+                              : pincodeFeedback.type === 'warning'
+                              ? 'bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200'
+                              : 'bg-emerald-50/70 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {pincodeFeedback.type === 'success' ? (
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              ) : pincodeFeedback.type === 'warning' ? (
+                                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                              ) : (
+                                <Loader2 className="w-4 h-4 text-emerald-600 animate-spin shrink-0" />
+                              )}
+                              <span className="font-semibold truncate">{pincodeFeedback.message}</span>
+                            </div>
+
+                            {/* "Click here to again fetch" Button */}
+                            <button
+                              type="button"
+                              onClick={() => lookupPincode(formData.pincode, true)}
+                              disabled={isLookingUpPincode || formData.pincode.replace(/\D/g, '').length !== 6}
+                              className="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-[11px] flex items-center gap-1 transition cursor-pointer shadow-xs shrink-0"
+                              title="Click here to re-run original postal API call"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Click to fetch again</span>
+                            </button>
+                          </div>
+
+                          {/* Quick locality chips if multiple post offices found */}
+                          {pincodeLocalities.length > 1 && (
+                            <div className="pt-1.5 border-t border-emerald-200/60 dark:border-emerald-800/60 space-y-1">
+                              <span className="text-[10.5px] font-bold text-emerald-800 dark:text-emerald-300 block">
+                                Multiple areas found — click your exact town/locality:
+                              </span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {pincodeLocalities.map((loc) => (
+                                  <button
+                                    key={loc}
+                                    type="button"
+                                    onClick={() => {
+                                      setFormData(prev => ({ ...prev, city: loc }));
+                                    }}
+                                    className={`px-2 py-0.5 rounded-lg text-[10.5px] font-bold transition cursor-pointer ${
+                                      formData.city.toLowerCase() === loc.toLowerCase()
+                                        ? 'bg-emerald-700 text-white shadow-xs'
+                                        : 'bg-white dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-100'
+                                    }`}
+                                  >
+                                    {loc}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
 
-                  {formErrors.city && <p className="text-[10px] text-rose-600 font-bold">{formErrors.city}</p>}
-                  {formErrors.pincode && <p className="text-[10px] text-rose-600 font-bold">{formErrors.pincode}</p>}
-                </div>
+                    {/* Auto-Fetched or Editable State, District & City */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1 text-xs">
+                          State / Region *
+                        </label>
+                        <select
+                          value={formData.state}
+                          onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                          className={`w-full px-2.5 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-bold text-emerald-950 dark:text-emerald-100 text-xs ${
+                            formErrors.state ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
+                          }`}
+                        >
+                          <option value="">Select State</option>
+                          <option value="Tamil Nadu">Tamil Nadu State (₹50)</option>
+                          <option value="Cumbum Store / Local">Cumbum Local (₹25)</option>
+                          <option value="Theni District">Theni District (₹50)</option>
+                          <option value="Other States">Other States / Pan-India (₹90)</option>
+                        </select>
+                        {formErrors.state && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.state}</p>}
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1 text-xs">
+                          District
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Theni / Chennai"
+                          value={formData.district}
+                          onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+                          className="w-full px-2.5 py-2 bg-gray-50 dark:bg-emerald-900/60 border border-gray-200 dark:border-emerald-700 rounded-xl font-bold text-gray-900 dark:text-emerald-100 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1 text-xs">
+                          City / Town *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Cumbum"
+                          value={formData.city}
+                          onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                          className={`w-full px-2.5 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-bold text-gray-900 dark:text-emerald-100 text-xs ${
+                            formErrors.city ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
+                          }`}
+                        />
+                        {formErrors.city && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.city}</p>}
+                      </div>
+                    </div>
+
+                    {/* Street / House Address */}
+                    <div>
+                      <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1 text-xs">
+                        Street / Door No / Delivery Address *
+                      </label>
+                      <div className="relative">
+                        <MapPin className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+                        <input
+                          type="text"
+                          placeholder="e.g. Door 45, Main Bazaar Street, Near Bus Stand"
+                          value={formData.address}
+                          onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                          className={`w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-bold text-gray-900 dark:text-emerald-100 ${
+                            formErrors.address ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
+                          }`}
+                        />
+                      </div>
+                      {formErrors.address && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.address}</p>}
+                    </div>
+                  </>
+                ) : (
+                  /* Non-Indian or Manual Address Entry Mode */
+                  <div className="space-y-3 p-3.5 bg-gray-50/70 dark:bg-emerald-900/30 rounded-2xl border border-gray-200 dark:border-emerald-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-800 dark:text-emerald-200 flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-emerald-600 dark:text-amber-400" />
+                        <span>Manual Full Delivery Address</span>
+                      </span>
+                      {formData.country_code === 'IN' && (
+                        <button
+                          type="button"
+                          onClick={() => setIsManualAddressMode(false)}
+                          className="text-[11px] font-bold text-emerald-700 dark:text-amber-400 hover:underline cursor-pointer"
+                        >
+                          Switch back to Pincode Auto-fetch 🇮🇳
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Street Address */}
+                    <div>
+                      <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1 text-xs">
+                        Full Street / Building / House Address *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 123 Orchard Road, Apt 4B"
+                        value={formData.address}
+                        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                        className={`w-full px-3 py-2 bg-white dark:bg-emerald-950 border rounded-xl font-bold text-gray-900 dark:text-emerald-100 text-xs ${
+                          formErrors.address ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
+                        }`}
+                      />
+                      {formErrors.address && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.address}</p>}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1 text-xs">
+                          City / Town *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Singapore / London"
+                          value={formData.city}
+                          onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                          className={`w-full px-2.5 py-2 bg-white dark:bg-emerald-950 border rounded-xl font-bold text-gray-900 dark:text-emerald-100 text-xs ${
+                            formErrors.city ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
+                          }`}
+                        />
+                        {formErrors.city && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.city}</p>}
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1 text-xs">
+                          State / Province / Region *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Greater London"
+                          value={formData.state}
+                          onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                          className={`w-full px-2.5 py-2 bg-white dark:bg-emerald-950 border rounded-xl font-bold text-gray-900 dark:text-emerald-100 text-xs ${
+                            formErrors.state ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
+                          }`}
+                        />
+                        {formErrors.state && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.state}</p>}
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1 text-xs">
+                          Postal / ZIP Code *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. SW1A 1AA"
+                          value={formData.pincode}
+                          onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
+                          className={`w-full px-2.5 py-2 bg-white dark:bg-emerald-950 border rounded-xl font-mono font-bold text-gray-900 dark:text-emerald-100 text-xs ${
+                            formErrors.pincode ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
+                          }`}
+                        />
+                        {formErrors.pincode && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.pincode}</p>}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Optional Notes */}
                 <div>
@@ -1257,7 +1515,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                       </span>
                     </p>
                     <p className="text-gray-600 dark:text-emerald-300 text-[11px] leading-relaxed">
-                      {formData.address}, {formData.city}, {formData.state} - {formData.pincode}
+                      {[formData.address, formData.city, formData.district ? `${formData.district} Dist.` : '', formData.state, formData.pincode].filter(Boolean).join(', ')}
                     </p>
                     {formData.email && (
                       <p className="text-gray-500 dark:text-emerald-400 text-[10px]">
