@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Star, MessageSquare, Plus, CheckCircle2, ShieldCheck, Heart,
   User, Send, ThumbsUp, Image as ImageIcon, X, Clock, Package,
@@ -74,14 +75,25 @@ function formatTimeBadge(dateString?: string): { relative: string; full: string 
 export const ReviewsPublicPage: React.FC = () => {
   const { addNotification } = useNotifications();
   const { showActionModal } = useActionModal();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters & Search
   const [filterRating, setFilterRating] = useState<'ALL' | number>('ALL');
-  const [filterProduct, setFilterProduct] = useState<'ALL' | string>('ALL');
+  const [filterProduct, setFilterProduct] = useState<'ALL' | string>(() => {
+    return searchParams.get('product') || searchParams.get('productId') || 'ALL';
+  });
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Keep filter in sync with URL searchParams
+  useEffect(() => {
+    const pId = searchParams.get('product') || searchParams.get('productId');
+    if (pId) {
+      setFilterProduct(pId);
+    }
+  }, [searchParams]);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -115,6 +127,7 @@ export const ReviewsPublicPage: React.FC = () => {
     setFilterProduct('ALL');
     setSearchQuery('');
     setCurrentPage(1);
+    setSearchParams({});
     toast.success('Filters reset to show all reviews');
   };
 

@@ -5,7 +5,8 @@ import {
   ChevronRight, Share2, Heart, Award, HelpCircle, Truck, Package, 
   Sparkles, AlertCircle, CheckCircle2, Plus, Minus, ArrowLeft,
   Copy, Utensils, BookOpen, HeartPulse, Info, FileText, Tag,
-  Star, Send, Clock, Image as ImageIcon, X, Upload
+  Star, Send, Clock, Image as ImageIcon, X, Upload, ExternalLink,
+  Filter, Search, Camera, ThumbsUp
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatPrice, compressImageToMax100KB } from '../../lib/utils';
@@ -15,6 +16,7 @@ import { getJSONStore, setJSONStore, getWhatsAppOrdersNumber } from '../../lib/d
 import { DEFAULT_DATABASE_SEEDS } from '../../lib/initialData';
 import { ProductDetailSkeleton } from '../../components/common/Skeleton';
 import ProductCard from '../../components/public/ProductCard';
+import ReviewCoverflow3D from '../../components/public/ReviewCoverflow3D';
 
 export const ProductDetailPage: React.FC = () => {
   const { id, slug } = useParams<{ id: string; slug?: string }>();
@@ -82,6 +84,12 @@ export const ProductDetailPage: React.FC = () => {
 
   // Review Submission Modal State
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [showAllReviewsModal, setShowAllReviewsModal] = useState(false);
+  const [modalStarFilter, setModalStarFilter] = useState<'ALL' | number>('ALL');
+  const [modalSearch, setModalSearch] = useState('');
+  const [modalOnlyPhotos, setModalOnlyPhotos] = useState(false);
+  const [modalTab, setModalTab] = useState<'PRODUCT' | 'ALL'>('PRODUCT');
+
   const [reviewFormData, setReviewFormData] = useState({
     customer_name: '',
     customer_phone: '',
@@ -446,18 +454,108 @@ export const ProductDetailPage: React.FC = () => {
     }
   ].filter((item): item is { label: string; value: string } => Boolean(item && item.value));
 
+  // Approved reviews
+  const approvedReviews = useMemo(() => {
+    return reviews.filter(r => r.status === 'APPROVED' || !r.status);
+  }, [reviews]);
+
+  // Reviews specifically matching this product
+  const thisProductReviews = useMemo(() => {
+    return approvedReviews.filter(r => r.product_id === product?.id);
+  }, [approvedReviews, product?.id]);
+
+  // General reviews (store-level reviews or general reviews without product_id)
+  const generalReviews = useMemo(() => {
+    return approvedReviews.filter(r => !r.product_id || r.product_id === '');
+  }, [approvedReviews]);
+
+  // Combined prioritized reviews for 3D coverflow:
+  // Shows reviews for selected product first, followed by general reviews!
+  const coverflowReviews = useMemo(() => {
+    const list: Review[] = [];
+    const seenIds = new Set<string>();
+
+    // 1. This product reviews first
+    thisProductReviews.forEach(r => {
+      if (!seenIds.has(r.id)) {
+        seenIds.add(r.id);
+        list.push(r);
+      }
+    });
+
+    // 2. General reviews next
+    generalReviews.forEach(r => {
+      if (!seenIds.has(r.id)) {
+        seenIds.add(r.id);
+        list.push(r);
+      }
+    });
+
+    // 3. Fallback to other approved reviews if total < 3 to ensure rich 3D carousel experience
+    if (list.length < 3) {
+      approvedReviews.forEach(r => {
+        if (!seenIds.has(r.id)) {
+          seenIds.add(r.id);
+          list.push(r);
+        }
+      });
+    }
+
+    return list;
+  }, [approvedReviews, thisProductReviews, generalReviews]);
+
   // Reviews for this product (or all approved reviews if none specifically for this SKU)
   const productSpecificReviews = useMemo(() => {
-    const approved = reviews.filter(r => r.status === 'APPROVED' || !r.status);
-    const forThisProd = approved.filter(r => r.product_id === product?.id);
-    return forThisProd.length > 0 ? forThisProd : approved;
-  }, [reviews, product?.id]);
+    return thisProductReviews.length > 0 ? thisProductReviews : coverflowReviews;
+  }, [thisProductReviews, coverflowReviews]);
 
   const avgProductRating = useMemo(() => {
-    if (productSpecificReviews.length === 0) return '5.0';
-    const sum = productSpecificReviews.reduce((acc, r) => acc + (Number(r.rating) || 5), 0);
-    return (sum / productSpecificReviews.length).toFixed(1);
-  }, [productSpecificReviews]);
+    const targetList = thisProductReviews.length > 0 ? thisProductReviews : coverflowReviews;
+    if (targetList.length === 0) return '5.0';
+    const sum = targetList.reduce((acc, r) => acc + (Number(r.rating) || 5), 0);
+    return (sum / targetList.length).toFixed(1);
+  }, [thisProductReviews, coverflowReviews]);
+
+  // Star ratings breakdown for modal
+  const ratingDistribution = useMemo(() => {
+    const source = modalTab === 'PRODUCT' && thisProductReviews.length > 0 ? thisProductReviews : approvedReviews;
+    const counts = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    source.forEach(r => {
+      const star = Math.min(5, Math.max(1, Math.round(Number(r.rating) || 5))) as 1 | 2 | 3 | 4 | 5;
+      counts[star] = (counts[star] || 0) + 1;
+    });
+    const total = source.length || 1;
+    return {
+      counts,
+      percentages: {
+        5: Math.round((counts[5] / total) * 100),
+        4: Math.round((counts[4] / total) * 100),
+        3: Math.round((counts[3] / total) * 100),
+        2: Math.round((counts[2] / total) * 100),
+        1: Math.round((counts[1] / total) * 100),
+      },
+      total: source.length
+    };
+  }, [modalTab, thisProductReviews, approvedReviews]);
+
+  // Filtered reviews inside the modal
+  const modalFilteredReviews = useMemo(() => {
+    const source = modalTab === 'PRODUCT' && thisProductReviews.length > 0 ? thisProductReviews : (modalTab === 'PRODUCT' ? coverflowReviews : approvedReviews);
+    return source.filter(r => {
+      if (modalStarFilter !== 'ALL' && r.rating !== modalStarFilter) return false;
+      if (modalOnlyPhotos && !r.image_url && (!r.images || r.images.length === 0)) return false;
+      if (modalSearch.trim()) {
+        const q = modalSearch.toLowerCase();
+        const n = (r.customer_name || '').toLowerCase();
+        const t = (r.title || '').toLowerCase();
+        const b = (r.body || '').toLowerCase();
+        const l = (r.customer_location || '').toLowerCase();
+        const o = (r.order_id || '').toLowerCase();
+        if (!n.includes(q) && !t.includes(q) && !b.includes(q) && !l.includes(q) && !o.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [modalTab, thisProductReviews, coverflowReviews, approvedReviews, modalStarFilter, modalOnlyPhotos, modalSearch]);
 
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1078,7 +1176,9 @@ export const ProductDetailPage: React.FC = () => {
               <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 px-2.5 py-1 rounded-xl text-xs font-black text-amber-900 dark:text-amber-200">
                 <span>{avgProductRating}</span>
                 <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-500" />
-                <span className="text-[10px] text-gray-500 dark:text-emerald-300 font-normal">({productSpecificReviews.length})</span>
+                <span className="text-[10px] text-gray-500 dark:text-emerald-300 font-normal">
+                  ({thisProductReviews.length > 0 ? thisProductReviews.length : coverflowReviews.length})
+                </span>
               </div>
             </div>
             <p className="text-xs sm:text-sm text-gray-600 dark:text-emerald-300 mt-1">
@@ -1086,17 +1186,31 @@ export const ProductDetailPage: React.FC = () => {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={handleOpenProductReviewModal}
-            className="px-5 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs sm:text-sm rounded-2xl shadow-md transition flex items-center gap-1.5 shrink-0 cursor-pointer hover:scale-105 active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Write a Review</span>
-          </button>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => {
+                setModalTab('PRODUCT');
+                setShowAllReviewsModal(true);
+              }}
+              className="px-4 py-2.5 bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/90 dark:hover:bg-emerald-800 text-emerald-900 dark:text-emerald-100 font-extrabold text-xs sm:text-sm rounded-2xl border border-emerald-300 dark:border-emerald-700 shadow-sm transition flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
+            >
+              <BookOpen className="w-4 h-4 text-emerald-700 dark:text-amber-400" />
+              <span>View All Reviews ({thisProductReviews.length > 0 ? thisProductReviews.length : coverflowReviews.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenProductReviewModal}
+              className="px-5 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black text-xs sm:text-sm rounded-2xl shadow-md transition flex items-center gap-1.5 shrink-0 cursor-pointer hover:scale-105 active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Write a Review</span>
+            </button>
+          </div>
         </div>
 
-        {productSpecificReviews.length === 0 ? (
+        {coverflowReviews.length === 0 ? (
           <div className="p-8 text-center bg-white dark:bg-emerald-950/60 rounded-3xl border border-dashed border-emerald-200 dark:border-emerald-800 space-y-2">
             <Star className="w-8 h-8 text-amber-400 mx-auto" />
             <p className="font-bold text-sm text-gray-800 dark:text-emerald-100">No customer reviews yet for this item</p>
@@ -1110,97 +1224,427 @@ export const ProductDetailPage: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {productSpecificReviews.slice(0, 6).map((rev) => {
-              const revImg = rev.image_url || rev.images?.[0];
-              const d = rev.created_at ? new Date(rev.created_at) : new Date();
-              const formattedDate = d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' });
+          <div className="w-full space-y-3">
+            {/* 3D Coverflow Card View (Prioritizes this product, then general reviews) */}
+            <ReviewCoverflow3D
+              reviews={coverflowReviews}
+              products={products}
+              onViewPhoto={(url) => setLightboxImg(url)}
+            />
 
-              return (
-                <div
-                  key={rev.id}
-                  className="bg-white dark:bg-emerald-950/80 p-6 rounded-3xl border-2 border-emerald-100 dark:border-emerald-800/80 shadow-sm flex flex-col justify-between space-y-3.5 hover:border-amber-400 hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300"
+            {/* Bottom quick navigation strip */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-emerald-100/80 dark:border-emerald-800/60 text-xs">
+              <span className="text-gray-500 dark:text-emerald-300 font-medium flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>Drag, swipe or tap side cards to flip through 3D reviews</span>
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalTab('PRODUCT');
+                    setShowAllReviewsModal(true);
+                  }}
+                  className="font-bold text-emerald-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
                 >
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-1 text-amber-400">
-                        {Array.from({ length: rev.rating }).map((_, i) => (
-                          <Star key={i} className="w-4 h-4 fill-current" />
-                        ))}
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> {formattedDate}
-                      </span>
-                    </div>
-
-                    {rev.title && (
-                      <h4 className="font-extrabold text-sm text-gray-900 dark:text-emerald-100 leading-snug">
-                        &ldquo;{rev.title}&rdquo;
-                      </h4>
-                    )}
-
-                    {revImg && (
-                      <div
-                        onClick={() => setLightboxImg(revImg)}
-                        className="relative aspect-video rounded-2xl overflow-hidden border border-emerald-100 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900 cursor-pointer group"
-                      >
-                        <img
-                          src={revImg}
-                          alt="Customer product feedback"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        />
-                        <span className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1">
-                          <ImageIcon className="w-3 h-3 text-amber-400" /> Zoom
-                        </span>
-                      </div>
-                    )}
-
-                    <p className="text-xs text-gray-600 dark:text-emerald-200/90 leading-relaxed italic">
-                      &ldquo;{rev.body}&rdquo;
-                    </p>
-
-                    {rev.admin_reply && (
-                      <div className="bg-amber-50/80 dark:bg-amber-950/40 p-3 rounded-2xl border border-amber-200 dark:border-amber-800 text-[11px] space-y-0.5">
-                        <strong className="font-bold text-amber-900 dark:text-amber-300 block text-[10px]">
-                          💬 Store Team Reply:
-                        </strong>
-                        <p className="text-amber-950 dark:text-amber-200 italic">{rev.admin_reply}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="pt-3 border-t border-emerald-100 dark:border-emerald-800/60 flex items-center justify-between text-xs">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-7 h-7 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs">
-                        {(rev.customer_name || 'Customer').charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <div className="font-bold text-gray-900 dark:text-emerald-100">{rev.customer_name || 'Verified Customer'}</div>
-                        <div className="text-emerald-700 dark:text-emerald-400 text-[11px] font-medium">
-                          {rev.customer_location || 'Tamil Nadu'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {rev.order_id && (
-                        <span className="font-mono text-[10px] font-bold text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                          #{rev.order_id}
-                        </span>
-                      )}
-                      {rev.is_verified_purchase && (
-                        <span className="bg-emerald-100 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-200 text-[10px] font-extrabold px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-700">
-                          ✓ Verified
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                  <span>See all detailed reviews &amp; photos ({thisProductReviews.length > 0 ? thisProductReviews.length : coverflowReviews.length}) &rarr;</span>
+                </button>
+                <Link
+                  to={`/reviews?productId=${product.id}`}
+                  className="text-gray-500 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-amber-300 flex items-center gap-1 font-semibold"
+                >
+                  <span>Open full page</span>
+                  <ExternalLink className="w-3 h-3" />
+                </Link>
+              </div>
+            </div>
           </div>
         )}
       </section>
+
+      {/* View All Reviews Popup Modal */}
+      {showAllReviewsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-emerald-950 max-w-4xl w-full rounded-3xl border-2 border-emerald-300 dark:border-emerald-700 shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-emerald-100 dark:border-emerald-800 bg-gradient-to-r from-emerald-50/70 via-white to-amber-50/30 dark:from-emerald-900/40 dark:via-emerald-950 dark:to-emerald-900/30 flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                {product?.image_url && (
+                  <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900 shrink-0 shadow-xs">
+                    <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                  </div>
+                )}
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                      Product Reviews
+                    </span>
+                    <span className="text-xs text-gray-500 dark:text-emerald-300 font-mono">
+                      SKU: {product?.sku}
+                    </span>
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-bold font-serif text-gray-900 dark:text-emerald-100 mt-0.5">
+                    {product?.name}
+                  </h3>
+                  <div className="flex items-center gap-2.5 mt-1 text-xs text-gray-600 dark:text-emerald-300">
+                    <div className="flex items-center text-amber-400">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Star key={i} className="w-3.5 h-3.5 fill-current" />
+                      ))}
+                    </div>
+                    <span className="font-extrabold text-amber-700 dark:text-amber-300">
+                      {avgProductRating} / 5.0
+                    </span>
+                    <span>&bull;</span>
+                    <span className="font-semibold">
+                      {thisProductReviews.length} direct reviews ({approvedReviews.length} total store reviews)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <Link
+                  to={`/reviews?productId=${product.id}`}
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 text-white font-bold text-xs hover:bg-emerald-800 transition shadow-xs"
+                  title="Open on dedicated full reviews page"
+                >
+                  <span>Open Full Reviews Page</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setShowAllReviewsModal(false)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-1.5 rounded-xl hover:bg-gray-100 dark:hover:bg-emerald-900 transition cursor-pointer"
+                  title="Close modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Ratings Breakdown Summary */}
+            <div className="p-4 sm:p-5 bg-emerald-50/40 dark:bg-emerald-900/20 border-b border-emerald-100 dark:border-emerald-800/60 grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+              {/* Overall Score Box */}
+              <div className="sm:col-span-4 flex flex-col items-center justify-center p-3 bg-white dark:bg-emerald-950/70 rounded-2xl border border-emerald-100 dark:border-emerald-800 text-center shadow-xs">
+                <div className="text-3xl sm:text-4xl font-serif font-black text-amber-500">
+                  {avgProductRating}
+                </div>
+                <div className="flex items-center gap-1 text-amber-400 my-1">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Star key={i} className="w-4 h-4 fill-current" />
+                  ))}
+                </div>
+                <span className="text-[11px] font-bold text-gray-500 dark:text-emerald-300">
+                  Based on {ratingDistribution.total} customer feedback{ratingDistribution.total === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              {/* Star Distribution Progress Bars */}
+              <div className="sm:col-span-8 space-y-1.5 text-xs">
+                {[5, 4, 3, 2, 1].map((star) => {
+                  const s = star as 1 | 2 | 3 | 4 | 5;
+                  const count = ratingDistribution.counts[s] || 0;
+                  const pct = ratingDistribution.percentages[s] || 0;
+                  const isActive = modalStarFilter === star;
+
+                  return (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setModalStarFilter(prev => prev === star ? 'ALL' : star)}
+                      className={`w-full flex items-center gap-2 px-2 py-1 rounded-lg transition text-left cursor-pointer ${
+                        isActive
+                          ? 'bg-amber-100/80 dark:bg-amber-950/60 font-bold'
+                          : 'hover:bg-emerald-100/40 dark:hover:bg-emerald-900/40'
+                      }`}
+                    >
+                      <span className="w-12 font-bold flex items-center gap-1 text-gray-700 dark:text-emerald-200 shrink-0">
+                        <span>{star}</span>
+                        <Star className="w-3 h-3 fill-amber-400 text-amber-500" />
+                      </span>
+                      <div className="flex-1 h-2.5 bg-gray-200 dark:bg-emerald-900 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="w-12 text-right font-mono text-[11px] text-gray-500 dark:text-emerald-300 shrink-0">
+                        {count} ({pct}%)
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="p-3 sm:p-4 border-b border-emerald-100 dark:border-emerald-800 bg-white dark:bg-emerald-950 flex flex-wrap items-center justify-between gap-3 text-xs">
+              {/* Scope Tab (This Product vs All Reviews) */}
+              <div className="flex items-center bg-gray-100 dark:bg-emerald-900/60 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setModalTab('PRODUCT')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                    modalTab === 'PRODUCT'
+                      ? 'bg-white dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 shadow-xs'
+                      : 'text-gray-600 dark:text-emerald-300 hover:text-gray-900'
+                  }`}
+                >
+                  This Product ({thisProductReviews.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalTab('ALL')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition cursor-pointer ${
+                    modalTab === 'ALL'
+                      ? 'bg-white dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 shadow-xs'
+                      : 'text-gray-600 dark:text-emerald-300 hover:text-gray-900'
+                  }`}
+                >
+                  All Store Reviews ({approvedReviews.length})
+                </button>
+              </div>
+
+              {/* Star Rating Pills */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setModalStarFilter('ALL')}
+                  className={`px-2.5 py-1 rounded-lg font-bold text-xs transition cursor-pointer ${
+                    modalStarFilter === 'ALL'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-gray-100 dark:bg-emerald-900/60 text-gray-700 dark:text-emerald-200 hover:bg-gray-200'
+                  }`}
+                >
+                  All Stars
+                </button>
+                {[5, 4, 3, 2, 1].map(num => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => setModalStarFilter(prev => prev === num ? 'ALL' : num)}
+                    className={`px-2 py-1 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
+                      modalStarFilter === num
+                        ? 'bg-amber-400 text-slate-950 font-black shadow-xs'
+                        : 'bg-gray-100 dark:bg-emerald-900/60 text-gray-700 dark:text-emerald-200 hover:bg-gray-200'
+                    }`}
+                  >
+                    <span>{num}</span>
+                    <Star className="w-2.5 h-2.5 fill-current" />
+                  </button>
+                ))}
+
+                {/* Photo filter toggle */}
+                <button
+                  type="button"
+                  onClick={() => setModalOnlyPhotos(prev => !prev)}
+                  className={`px-2.5 py-1 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
+                    modalOnlyPhotos
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'bg-gray-100 dark:bg-emerald-900/60 text-gray-700 dark:text-emerald-200 hover:bg-gray-200'
+                  }`}
+                >
+                  <Camera className="w-3 h-3" />
+                  <span>With Photos</span>
+                </button>
+              </div>
+
+              {/* Search input */}
+              <div className="relative w-full sm:w-56">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={modalSearch}
+                  onChange={e => setModalSearch(e.target.value)}
+                  placeholder="Search reviews..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-emerald-900/60 border border-gray-200 dark:border-emerald-700 rounded-xl text-xs text-gray-900 dark:text-emerald-100 placeholder-gray-400 focus:ring-1 focus:ring-emerald-500"
+                />
+                {modalSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setModalSearch('')}
+                    className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Reviews Scrollable List */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 max-h-[55vh]">
+              {modalFilteredReviews.length === 0 ? (
+                <div className="p-8 text-center bg-gray-50 dark:bg-emerald-900/30 rounded-2xl border border-dashed border-gray-200 dark:border-emerald-800 space-y-2">
+                  <Star className="w-8 h-8 text-amber-400 mx-auto" />
+                  <p className="font-bold text-sm text-gray-800 dark:text-emerald-100">
+                    No matching reviews found
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-emerald-300">
+                    Try resetting your filters or be the first to share your experience with this item!
+                  </p>
+                  <div className="flex items-center justify-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModalStarFilter('ALL');
+                        setModalSearch('');
+                        setModalOnlyPhotos(false);
+                      }}
+                      className="px-3.5 py-1.5 bg-gray-200 dark:bg-emerald-800 text-gray-800 dark:text-emerald-100 font-bold text-xs rounded-xl cursor-pointer"
+                    >
+                      Clear Filters
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAllReviewsModal(false);
+                        handleOpenProductReviewModal();
+                      }}
+                      className="px-4 py-1.5 bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow cursor-pointer"
+                    >
+                      Write a Review
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {modalFilteredReviews.map((rev) => {
+                    const revImg = rev.image_url || rev.images?.[0];
+                    const d = rev.created_at ? new Date(rev.created_at) : new Date();
+                    const formattedDate = d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' });
+
+                    return (
+                      <div
+                        key={rev.id}
+                        className="bg-white dark:bg-emerald-950 p-5 rounded-2xl border border-emerald-100 dark:border-emerald-800 shadow-xs flex flex-col justify-between space-y-3 hover:border-amber-400/80 transition"
+                      >
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center space-x-1 text-amber-400">
+                              {Array.from({ length: rev.rating }).map((_, i) => (
+                                <Star key={i} className="w-3.5 h-3.5 fill-current" />
+                              ))}
+                              <span className="text-xs font-black text-amber-700 dark:text-amber-300 ml-1">
+                                {rev.rating}.0
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-400 flex items-center gap-1">
+                              <Clock className="w-3 h-3" /> {formattedDate}
+                            </span>
+                          </div>
+
+                          {rev.title && (
+                            <h4 className="font-extrabold text-sm text-gray-900 dark:text-emerald-100 leading-snug">
+                              &ldquo;{rev.title}&rdquo;
+                            </h4>
+                          )}
+
+                          {revImg && (
+                            <div
+                              onClick={() => setLightboxImg(revImg)}
+                              className="relative aspect-video rounded-xl overflow-hidden border border-emerald-100 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900 cursor-pointer group"
+                            >
+                              <img
+                                src={revImg}
+                                alt="Customer product feedback"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
+                              <span className="absolute bottom-1.5 right-1.5 bg-black/70 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1">
+                                <ImageIcon className="w-3 h-3 text-amber-400" /> Zoom
+                              </span>
+                            </div>
+                          )}
+
+                          <p className="text-xs text-gray-600 dark:text-emerald-200/90 leading-relaxed italic">
+                            &ldquo;{rev.body}&rdquo;
+                          </p>
+
+                          {rev.admin_reply && (
+                            <div className="bg-amber-50/90 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800 text-[11px] space-y-0.5">
+                              <strong className="font-bold text-amber-900 dark:text-amber-300 block text-[10px]">
+                                💬 Store Reply:
+                              </strong>
+                              <p className="text-amber-950 dark:text-amber-200 italic">{rev.admin_reply}</p>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="pt-2.5 border-t border-emerald-100 dark:border-emerald-800/60 flex items-center justify-between text-xs">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-7 h-7 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs">
+                              {(rev.customer_name || 'Customer').charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-bold text-gray-900 dark:text-emerald-100 text-xs">
+                                {rev.customer_name || 'Verified Customer'}
+                              </div>
+                              <div className="text-emerald-700 dark:text-emerald-400 text-[10.5px] font-medium">
+                                {rev.customer_location || 'Tamil Nadu'}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {rev.order_id && (
+                              <span className="font-mono text-[9.5px] font-bold text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                #{rev.order_id}
+                              </span>
+                            )}
+                            {rev.is_verified_purchase && (
+                              <span className="bg-emerald-100 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-200 text-[9.5px] font-extrabold px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-700">
+                                ✓ Verified
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Bottom Footer */}
+            <div className="p-4 bg-gray-50 dark:bg-emerald-900/40 border-t border-emerald-100 dark:border-emerald-800 flex items-center justify-between flex-wrap gap-2 text-xs">
+              <div className="flex items-center gap-3">
+                <span className="font-bold text-gray-700 dark:text-emerald-200">
+                  Showing {modalFilteredReviews.length} of {ratingDistribution.total} reviews
+                </span>
+                <Link
+                  to={`/reviews?productId=${product.id}`}
+                  className="text-emerald-700 dark:text-amber-400 font-bold hover:underline inline-flex items-center gap-1"
+                >
+                  <span>Open in Separate Page</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAllReviewsModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 dark:text-emerald-300 hover:bg-gray-200 dark:hover:bg-emerald-800 cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAllReviewsModal(false);
+                    handleOpenProductReviewModal();
+                  }}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-black rounded-xl shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Write a Review</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* Write a Review Modal */}
       {showReviewModal && (
