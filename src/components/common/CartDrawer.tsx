@@ -22,6 +22,49 @@ interface CartDrawerProps {
 
 const WHATSAPP_NUMBER = import.meta.env.VITE_WHATSAPP_NUMBER || '919876543210';
 
+// Helper function to normalize detected Indian state names to match our dropdown options
+export const normalizeIndianState = (rawState: string): string => {
+  if (!rawState) return '';
+  const s = rawState.trim().toLowerCase();
+  if (s.includes('tamil')) return 'Tamil Nadu';
+  if (s.includes('puducherry') || s.includes('pondicherry')) return 'Puducherry';
+  if (s.includes('andhra')) return 'Andhra Pradesh';
+  if (s.includes('karnataka')) return 'Karnataka';
+  if (s.includes('kerala')) return 'Kerala';
+  if (s.includes('telangana')) return 'Telangana';
+  if (s.includes('bihar')) return 'Bihar';
+  if (s.includes('chhattisgarh') || s.includes('chattisgarh')) return 'Chhattisgarh';
+  if (s.includes('delhi')) return 'Delhi';
+  if (s.includes('gujarat')) return 'Gujarat';
+  if (s.includes('haryana')) return 'Haryana';
+  if (s.includes('himachal')) return 'Himachal Pradesh';
+  if (s.includes('jharkhand')) return 'Jharkhand';
+  if (s.includes('madhya')) return 'Madhya Pradesh';
+  if (s.includes('maharashtra')) return 'Maharashtra';
+  if (s.includes('odisha') || s.includes('orissa')) return 'Odisha';
+  if (s.includes('punjab')) return 'Punjab';
+  if (s.includes('rajasthan')) return 'Rajasthan';
+  if (s.includes('uttar pradesh')) return 'Uttar Pradesh';
+  if (s.includes('uttarakhand') || s.includes('uttaranchal')) return 'Uttarakhand';
+  if (s.includes('west bengal') || s.includes('bengal')) return 'West Bengal';
+  if (s.includes('andaman')) return 'Andaman and Nicobar Islands';
+  if (s.includes('arunachal')) return 'Arunachal Pradesh';
+  if (s.includes('assam')) return 'Assam';
+  if (s.includes('chandigarh')) return 'Chandigarh';
+  if (s.includes('dadra') || s.includes('daman') || s.includes('diu')) return 'Dadra and Nagar Haveli and Daman and Diu';
+  if (s.includes('goa')) return 'Goa';
+  if (s.includes('jammu') || s.includes('kashmir')) return 'Jammu and Kashmir';
+  if (s.includes('ladakh')) return 'Ladakh';
+  if (s.includes('lakshadweep')) return 'Lakshadweep';
+  if (s.includes('manipur')) return 'Manipur';
+  if (s.includes('meghalaya')) return 'Meghalaya';
+  if (s.includes('mizoram')) return 'Mizoram';
+  if (s.includes('nagaland')) return 'Nagaland';
+  if (s.includes('sikkim')) return 'Sikkim';
+  if (s.includes('tripura')) return 'Tripura';
+  return rawState.trim();
+};
+
 export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
   const { items, updateQuantity, removeItem, clearCart, totalAmount, itemCount, subTotal, appliedCoupon, discountAmount, applyCoupon, removeCoupon } = useCart();
   const { addNotification } = useNotifications();
@@ -50,7 +93,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
   // Customer auto-fetch by WhatsApp Phone Number
   const [isLookingUpCustomer, setIsLookingUpCustomer] = useState(false);
   const [customerLookupStatus, setCustomerLookupStatus] = useState<{
-    type: 'found' | 'new';
+    type: 'found' | 'new' | 'warning';
     customerName?: string;
     message: string;
   } | null>(null);
@@ -64,6 +107,115 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
     message: string;
   } | null>(null);
 
+  // Auto-fetch customer details from Customers and Orders databases
+  const lookupCustomer = async (rawPhone: string, force = false) => {
+    const rawDigits = (rawPhone || '').replace(/\D/g, '');
+    if (rawDigits.length < 10) {
+      if (force) {
+        setCustomerLookupStatus({
+          type: 'warning',
+          message: 'Please enter a valid 10-digit WhatsApp Phone Number.'
+        });
+      }
+      return;
+    }
+
+    setIsLookingUpCustomer(true);
+    try {
+      const [customers, orders] = await Promise.all([
+        getJSONStore<Customer>('customers'),
+        getJSONStore<Order>('orders')
+      ]);
+
+      const matchedCust = findCustomerByPhoneAndCountry(customers, rawDigits, formData.calling_code);
+      // Also look for past order matching this phone number (last 10 digits)
+      const matchedOrder = orders.find(o => {
+        const p = (o.customer_phone_snapshot || '').replace(/\D/g, '');
+        return p.endsWith(rawDigits.slice(-10));
+      });
+
+      if (matchedCust && matchedCust.name) {
+        // Customer exists in DB! Auto-fetch name and address fields
+        const autoName = matchedCust.name;
+        const autoAddr = matchedCust.address || (matchedOrder ? (matchedOrder.delivery_address || '').split(',')[0] : '');
+        const autoDistrict = (matchedCust as any).district || matchedCust.area || '';
+        const autoCity = matchedCust.city || '';
+        const autoPin = matchedCust.pincode || '';
+        const autoEmail = matchedCust.email || '';
+        const autoState = matchedCust.state || '';
+
+        setFormData(prev => ({
+          ...prev,
+          fullName: autoName || prev.fullName,
+          address: autoAddr || prev.address,
+          district: autoDistrict || prev.district,
+          city: autoCity || prev.city,
+          pincode: autoPin || prev.pincode,
+          email: autoEmail || prev.email,
+          state: autoState || prev.state
+        }));
+
+        setCustomerLookupStatus({
+          type: 'found',
+          customerName: matchedCust.name,
+          message: `Customer Found! Welcome back, ${matchedCust.name}! ✨ Auto-filled your details from previous orders.`
+        });
+
+        // Clear validation errors
+        setFormErrors(prev => {
+          const next = { ...prev };
+          delete next.fullName;
+          delete next.phone;
+          delete next.address;
+          delete next.city;
+          delete next.pincode;
+          delete next.state;
+          return next;
+        });
+
+        // If customer has a valid 6-digit pincode, trigger pincode fetch if city is not set
+        if (autoPin && autoPin.replace(/\D/g, '').length === 6 && !autoCity) {
+          lookupPincode(autoPin, false);
+        }
+      } else if (matchedOrder && matchedOrder.customer_name_snapshot) {
+        // Customer found in past order
+        const autoName = matchedOrder.customer_name_snapshot;
+        const rawAddr = matchedOrder.delivery_address || '';
+        const pinMatch = rawAddr.match(/\b\d{6}\b/);
+        const autoPin = pinMatch ? pinMatch[0] : '';
+        const parts = rawAddr.split(',').map(s => s.trim());
+        const autoAddr = parts[0] || '';
+
+        setFormData(prev => ({
+          ...prev,
+          fullName: autoName || prev.fullName,
+          address: autoAddr || prev.address,
+          pincode: autoPin || prev.pincode
+        }));
+
+        setCustomerLookupStatus({
+          type: 'found',
+          customerName: autoName,
+          message: `Customer Found! Welcome back, ${autoName}! ✨ Auto-filled from order #${matchedOrder.order_number}.`
+        });
+
+        if (autoPin && autoPin.length === 6) {
+          lookupPincode(autoPin, false);
+        }
+      } else {
+        // Customer not found in DB -> friendly message
+        setCustomerLookupStatus({
+          type: 'new',
+          message: "Welcome to MR. VIVASAYI! 👋 New customer detected. Please enter your name and delivery address below."
+        });
+      }
+    } catch (err) {
+      console.warn('Customer lookup error:', err);
+    } finally {
+      setIsLookingUpCustomer(false);
+    }
+  };
+
   // Auto-fetch customer details when WhatsApp phone number reaches 10 digits
   useEffect(() => {
     const rawDigits = formData.phone.replace(/\D/g, '');
@@ -72,58 +224,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
       return;
     }
 
-    let isMounted = true;
-    const timer = setTimeout(async () => {
-      setIsLookingUpCustomer(true);
-      try {
-        const customers = await getJSONStore<Customer>('customers');
-        if (!isMounted) return;
+    const timer = setTimeout(() => {
+      lookupCustomer(rawDigits, false);
+    }, 400);
 
-        const matched = findCustomerByPhoneAndCountry(customers, rawDigits, formData.calling_code);
-        if (matched && matched.name) {
-          // Customer exists in DB! Auto-fetch name and address fields if currently empty
-          setFormData(prev => ({
-            ...prev,
-            fullName: prev.fullName.trim() ? prev.fullName : matched.name,
-            address: prev.address.trim() ? prev.address : (matched.address || prev.address),
-            district: (prev.district || '').trim() ? prev.district : ((matched as any).district || matched.area || ''),
-            city: prev.city.trim() ? prev.city : (matched.city || ''),
-            pincode: prev.pincode.trim() ? prev.pincode : (matched.pincode || ''),
-            email: prev.email.trim() ? prev.email : (matched.email || prev.email),
-            state: prev.state.trim() ? prev.state : (matched.state || '')
-          }));
-
-          setCustomerLookupStatus({
-            type: 'found',
-            customerName: matched.name,
-            message: `Welcome back, ${matched.name}! ✨ We've auto-filled your delivery details from your profile.`
-          });
-
-          // Clear any validation errors
-          setFormErrors(prev => {
-            const next = { ...prev };
-            delete next.fullName;
-            delete next.phone;
-            return next;
-          });
-        } else {
-          // Customer not found in DB -> friendly message
-          setCustomerLookupStatus({
-            type: 'new',
-            message: "Welcome to MR. VIVASAYI! 👋 We're delighted to serve you. Please enter your name and delivery address below."
-          });
-        }
-      } catch (err) {
-        console.warn('Customer lookup error:', err);
-      } finally {
-        if (isMounted) setIsLookingUpCustomer(false);
-      }
-    }, 350);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timer);
-    };
+    return () => clearTimeout(timer);
   }, [formData.phone, formData.calling_code]);
 
   // Primary Pincode lookup function (callable automatically or manually via "Click to fetch again" button)
@@ -177,8 +282,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
 
         const detectedCity = localities[0] || primary.District || primary.Name || '';
 
-        // Determine delivery rate category based on detected state/district
-        let mappedState = detectedState;
+        // Determine delivery rate category and state based on detected state/district
+        let mappedState = normalizeIndianState(detectedState);
         const stateLower = detectedState.toLowerCase();
         const districtLower = detectedDistrict.toLowerCase();
         const nameLower = (primary.Name || '').toLowerCase();
@@ -191,8 +296,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
           } else {
             mappedState = 'Tamil Nadu';
           }
-        } else {
-          mappedState = 'Other States';
         }
 
         setFormData(prev => ({
@@ -1051,6 +1154,22 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                         }`}
                       />
                     </div>
+
+                    {/* WhatsApp Phone Auto-Fetch Button */}
+                    <button
+                      type="button"
+                      onClick={() => lookupCustomer(formData.phone, true)}
+                      disabled={isLookingUpCustomer || formData.phone.replace(/\D/g, '').length < 10}
+                      className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0"
+                      title="Click to auto-fetch customer details from previous orders"
+                    >
+                      {isLookingUpCustomer ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      )}
+                      <span>Auto-Fetch</span>
+                    </button>
                   </div>
                   {formErrors.phone && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.phone}</p>}
 
@@ -1060,11 +1179,15 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                       className={`mt-1.5 p-2.5 rounded-xl text-[11px] leading-snug flex items-start gap-2 transition-all animate-fadeIn ${
                         customerLookupStatus.type === 'found'
                           ? 'bg-emerald-50 dark:bg-emerald-900/60 border border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100 shadow-xs'
-                          : 'bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200'
+                          : customerLookupStatus.type === 'warning'
+                          ? 'bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200'
+                          : 'bg-emerald-50/70 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
                       }`}
                     >
                       {customerLookupStatus.type === 'found' ? (
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      ) : customerLookupStatus.type === 'warning' ? (
+                        <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                       ) : (
                         <Sparkles className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                       )}
@@ -1262,11 +1385,56 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                             formErrors.state ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
                           }`}
                         >
-                          <option value="">Select State</option>
-                          <option value="Tamil Nadu">Tamil Nadu State (₹50)</option>
-                          <option value="Cumbum Store / Local">Cumbum Local (₹25)</option>
-                          <option value="Theni District">Theni District (₹50)</option>
-                          <option value="Other States">Other States / Pan-India (₹90)</option>
+                          <option value="">Select State / Region</option>
+                          <optgroup label="📍 Local & Express Delivery (Tamil Nadu)">
+                            <option value="Cumbum Store / Local">Cumbum Store / Local (₹25)</option>
+                            <option value="Theni District">Theni District (₹50)</option>
+                            <option value="Tamil Nadu">Tamil Nadu State (₹50)</option>
+                            <option value="Puducherry">Puducherry (₹50)</option>
+                          </optgroup>
+                          <optgroup label="🌴 South Indian States (Pan-India ₹90)">
+                            <option value="Andhra Pradesh">Andhra Pradesh (₹90)</option>
+                            <option value="Karnataka">Karnataka (₹90)</option>
+                            <option value="Kerala">Kerala (₹90)</option>
+                            <option value="Telangana">Telangana (₹90)</option>
+                          </optgroup>
+                          <optgroup label="🇮🇳 All Indian States (Pan-India ₹90)">
+                            <option value="Arunachal Pradesh">Arunachal Pradesh (₹90)</option>
+                            <option value="Assam">Assam (₹90)</option>
+                            <option value="Bihar">Bihar (₹90)</option>
+                            <option value="Chhattisgarh">Chhattisgarh (₹90)</option>
+                            <option value="Goa">Goa (₹90)</option>
+                            <option value="Gujarat">Gujarat (₹90)</option>
+                            <option value="Haryana">Haryana (₹90)</option>
+                            <option value="Himachal Pradesh">Himachal Pradesh (₹90)</option>
+                            <option value="Jharkhand">Jharkhand (₹90)</option>
+                            <option value="Madhya Pradesh">Madhya Pradesh (₹90)</option>
+                            <option value="Maharashtra">Maharashtra (₹90)</option>
+                            <option value="Manipur">Manipur (₹90)</option>
+                            <option value="Meghalaya">Meghalaya (₹90)</option>
+                            <option value="Mizoram">Mizoram (₹90)</option>
+                            <option value="Nagaland">Nagaland (₹90)</option>
+                            <option value="Odisha">Odisha (₹90)</option>
+                            <option value="Punjab">Punjab (₹90)</option>
+                            <option value="Rajasthan">Rajasthan (₹90)</option>
+                            <option value="Sikkim">Sikkim (₹90)</option>
+                            <option value="Tripura">Tripura (₹90)</option>
+                            <option value="Uttar Pradesh">Uttar Pradesh (₹90)</option>
+                            <option value="Uttarakhand">Uttarakhand (₹90)</option>
+                            <option value="West Bengal">West Bengal (₹90)</option>
+                          </optgroup>
+                          <optgroup label="🏛️ Union Territories (Pan-India ₹90)">
+                            <option value="Andaman and Nicobar Islands">Andaman and Nicobar Islands (₹90)</option>
+                            <option value="Chandigarh">Chandigarh (₹90)</option>
+                            <option value="Dadra and Nagar Haveli and Daman and Diu">Dadra and Nagar Haveli and Daman and Diu (₹90)</option>
+                            <option value="Delhi">Delhi / NCR (₹90)</option>
+                            <option value="Jammu and Kashmir">Jammu and Kashmir (₹90)</option>
+                            <option value="Ladakh">Ladakh (₹90)</option>
+                            <option value="Lakshadweep">Lakshadweep (₹90)</option>
+                          </optgroup>
+                          <optgroup label="🌐 Other / General">
+                            <option value="Other States">Other States / Pan-India (₹90)</option>
+                          </optgroup>
                         </select>
                         {formErrors.state && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.state}</p>}
                       </div>
@@ -1439,7 +1607,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                     </div>
                   )}
                   <div className="flex justify-between text-emerald-200 text-xs">
-                    <span>Delivery Charge ({formData.state}):</span>
+                    <span>Delivery Charge{formData.state ? ` (${formData.state})` : ''}:</span>
                     <span className="font-mono font-bold text-amber-300">
                       {deliveryFee === 0 ? 'FREE DELIVERY ✓' : `+${formatPrice(deliveryFee)}`}
                     </span>
@@ -1591,7 +1759,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                       </div>
                     )}
                     <div className="flex justify-between">
-                      <span>Delivery Fee ({formData.state}):</span>
+                      <span>Delivery Fee{formData.state ? ` (${formData.state})` : ''}:</span>
                       <span className="font-mono font-bold text-amber-300">
                         {deliveryFee === 0 ? 'FREE DELIVERY ✓' : `+${formatPrice(deliveryFee)}`}
                       </span>
