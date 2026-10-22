@@ -1,0 +1,2 @@
+# SPA redirect rule for Netlify, Cloudflare Pages, Render, Surge
+/*    /index.html   200

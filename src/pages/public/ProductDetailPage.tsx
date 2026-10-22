@@ -288,6 +288,110 @@ export const ProductDetailPage: React.FC = () => {
     return [...fromCategory, ...others].slice(0, 4);
   }, [products, product]);
 
+  // Approved reviews
+  const approvedReviews = useMemo(() => {
+    return reviews.filter(r => r.status === 'APPROVED' || !r.status);
+  }, [reviews]);
+
+  // Reviews specifically matching this product
+  const thisProductReviews = useMemo(() => {
+    if (!product?.id) return [];
+    return approvedReviews.filter(r => r.product_id === product.id);
+  }, [approvedReviews, product?.id]);
+
+  // General reviews (store-level reviews or general reviews without product_id)
+  const generalReviews = useMemo(() => {
+    return approvedReviews.filter(r => !r.product_id || r.product_id === '');
+  }, [approvedReviews]);
+
+  // Combined prioritized reviews for 3D coverflow:
+  // Shows reviews for selected product first, followed by general reviews!
+  const coverflowReviews = useMemo(() => {
+    const list: Review[] = [];
+    const seenIds = new Set<string>();
+
+    // 1. This product reviews first
+    thisProductReviews.forEach(r => {
+      if (!seenIds.has(r.id)) {
+        seenIds.add(r.id);
+        list.push(r);
+      }
+    });
+
+    // 2. General reviews next
+    generalReviews.forEach(r => {
+      if (!seenIds.has(r.id)) {
+        seenIds.add(r.id);
+        list.push(r);
+      }
+    });
+
+    // 3. Fallback to other approved reviews if total < 3 to ensure rich 3D carousel experience
+    if (list.length < 3) {
+      approvedReviews.forEach(r => {
+        if (!seenIds.has(r.id)) {
+          seenIds.add(r.id);
+          list.push(r);
+        }
+      });
+    }
+
+    return list;
+  }, [approvedReviews, thisProductReviews, generalReviews]);
+
+  // Reviews for this product (or all approved reviews if none specifically for this SKU)
+  const productSpecificReviews = useMemo(() => {
+    return thisProductReviews.length > 0 ? thisProductReviews : coverflowReviews;
+  }, [thisProductReviews, coverflowReviews]);
+
+  const avgProductRating = useMemo(() => {
+    const targetList = thisProductReviews.length > 0 ? thisProductReviews : coverflowReviews;
+    if (targetList.length === 0) return '5.0';
+    const sum = targetList.reduce((acc, r) => acc + (Number(r.rating) || 5), 0);
+    return (sum / targetList.length).toFixed(1);
+  }, [thisProductReviews, coverflowReviews]);
+
+  // Star ratings breakdown for modal
+  const ratingDistribution = useMemo(() => {
+    const source = modalTab === 'PRODUCT' && thisProductReviews.length > 0 ? thisProductReviews : approvedReviews;
+    const counts = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    source.forEach(r => {
+      const star = Math.min(5, Math.max(1, Math.round(Number(r.rating) || 5))) as 1 | 2 | 3 | 4 | 5;
+      counts[star] = (counts[star] || 0) + 1;
+    });
+    const total = source.length || 1;
+    return {
+      counts,
+      percentages: {
+        5: Math.round((counts[5] / total) * 100),
+        4: Math.round((counts[4] / total) * 100),
+        3: Math.round((counts[3] / total) * 100),
+        2: Math.round((counts[2] / total) * 100),
+        1: Math.round((counts[1] / total) * 100),
+      },
+      total: source.length
+    };
+  }, [modalTab, thisProductReviews, approvedReviews]);
+
+  // Filtered reviews inside the modal
+  const modalFilteredReviews = useMemo(() => {
+    const source = modalTab === 'PRODUCT' && thisProductReviews.length > 0 ? thisProductReviews : (modalTab === 'PRODUCT' ? coverflowReviews : approvedReviews);
+    return source.filter(r => {
+      if (modalStarFilter !== 'ALL' && r.rating !== modalStarFilter) return false;
+      if (modalOnlyPhotos && !r.image_url && (!r.images || r.images.length === 0)) return false;
+      if (modalSearch.trim()) {
+        const q = modalSearch.toLowerCase();
+        const n = (r.customer_name || '').toLowerCase();
+        const t = (r.title || '').toLowerCase();
+        const b = (r.body || '').toLowerCase();
+        const l = (r.customer_location || '').toLowerCase();
+        const o = (r.order_id || '').toLowerCase();
+        if (!n.includes(q) && !t.includes(q) && !b.includes(q) && !l.includes(q) && !o.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [modalTab, thisProductReviews, coverflowReviews, approvedReviews, modalStarFilter, modalOnlyPhotos, modalSearch]);
+
   const cartItem = product ? getItem(product.id) : undefined;
   const isInCart = Boolean(cartItem && cartItem.quantity > 0);
   const cartQty = cartItem?.quantity || 0;
@@ -453,109 +557,6 @@ export const ProductDetailPage: React.FC = () => {
       value: product.stock_status === 'IN_STOCK' ? 'Ready for Immediate Express Dispatch' : product.stock_status === 'LOW_STOCK' ? 'Limited Batch Remaining' : 'Temporarily Out of Stock' 
     }
   ].filter((item): item is { label: string; value: string } => Boolean(item && item.value));
-
-  // Approved reviews
-  const approvedReviews = useMemo(() => {
-    return reviews.filter(r => r.status === 'APPROVED' || !r.status);
-  }, [reviews]);
-
-  // Reviews specifically matching this product
-  const thisProductReviews = useMemo(() => {
-    return approvedReviews.filter(r => r.product_id === product?.id);
-  }, [approvedReviews, product?.id]);
-
-  // General reviews (store-level reviews or general reviews without product_id)
-  const generalReviews = useMemo(() => {
-    return approvedReviews.filter(r => !r.product_id || r.product_id === '');
-  }, [approvedReviews]);
-
-  // Combined prioritized reviews for 3D coverflow:
-  // Shows reviews for selected product first, followed by general reviews!
-  const coverflowReviews = useMemo(() => {
-    const list: Review[] = [];
-    const seenIds = new Set<string>();
-
-    // 1. This product reviews first
-    thisProductReviews.forEach(r => {
-      if (!seenIds.has(r.id)) {
-        seenIds.add(r.id);
-        list.push(r);
-      }
-    });
-
-    // 2. General reviews next
-    generalReviews.forEach(r => {
-      if (!seenIds.has(r.id)) {
-        seenIds.add(r.id);
-        list.push(r);
-      }
-    });
-
-    // 3. Fallback to other approved reviews if total < 3 to ensure rich 3D carousel experience
-    if (list.length < 3) {
-      approvedReviews.forEach(r => {
-        if (!seenIds.has(r.id)) {
-          seenIds.add(r.id);
-          list.push(r);
-        }
-      });
-    }
-
-    return list;
-  }, [approvedReviews, thisProductReviews, generalReviews]);
-
-  // Reviews for this product (or all approved reviews if none specifically for this SKU)
-  const productSpecificReviews = useMemo(() => {
-    return thisProductReviews.length > 0 ? thisProductReviews : coverflowReviews;
-  }, [thisProductReviews, coverflowReviews]);
-
-  const avgProductRating = useMemo(() => {
-    const targetList = thisProductReviews.length > 0 ? thisProductReviews : coverflowReviews;
-    if (targetList.length === 0) return '5.0';
-    const sum = targetList.reduce((acc, r) => acc + (Number(r.rating) || 5), 0);
-    return (sum / targetList.length).toFixed(1);
-  }, [thisProductReviews, coverflowReviews]);
-
-  // Star ratings breakdown for modal
-  const ratingDistribution = useMemo(() => {
-    const source = modalTab === 'PRODUCT' && thisProductReviews.length > 0 ? thisProductReviews : approvedReviews;
-    const counts = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
-    source.forEach(r => {
-      const star = Math.min(5, Math.max(1, Math.round(Number(r.rating) || 5))) as 1 | 2 | 3 | 4 | 5;
-      counts[star] = (counts[star] || 0) + 1;
-    });
-    const total = source.length || 1;
-    return {
-      counts,
-      percentages: {
-        5: Math.round((counts[5] / total) * 100),
-        4: Math.round((counts[4] / total) * 100),
-        3: Math.round((counts[3] / total) * 100),
-        2: Math.round((counts[2] / total) * 100),
-        1: Math.round((counts[1] / total) * 100),
-      },
-      total: source.length
-    };
-  }, [modalTab, thisProductReviews, approvedReviews]);
-
-  // Filtered reviews inside the modal
-  const modalFilteredReviews = useMemo(() => {
-    const source = modalTab === 'PRODUCT' && thisProductReviews.length > 0 ? thisProductReviews : (modalTab === 'PRODUCT' ? coverflowReviews : approvedReviews);
-    return source.filter(r => {
-      if (modalStarFilter !== 'ALL' && r.rating !== modalStarFilter) return false;
-      if (modalOnlyPhotos && !r.image_url && (!r.images || r.images.length === 0)) return false;
-      if (modalSearch.trim()) {
-        const q = modalSearch.toLowerCase();
-        const n = (r.customer_name || '').toLowerCase();
-        const t = (r.title || '').toLowerCase();
-        const b = (r.body || '').toLowerCase();
-        const l = (r.customer_location || '').toLowerCase();
-        const o = (r.order_id || '').toLowerCase();
-        if (!n.includes(q) && !t.includes(q) && !b.includes(q) && !l.includes(q) && !o.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [modalTab, thisProductReviews, coverflowReviews, approvedReviews, modalStarFilter, modalOnlyPhotos, modalSearch]);
 
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
