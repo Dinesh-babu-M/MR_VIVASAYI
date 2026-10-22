@@ -9,13 +9,14 @@ export function cn(...inputs: ClassValue[]): string {
 }
 
 // ---- Price formatting ----
-export function formatPrice(amount: number): string {
+export function formatPrice(amount: number | string | undefined | null): string {
+  const numeric = typeof amount === 'number' ? amount : Number(amount) || 0;
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
-  }).format(amount);
+  }).format(numeric);
 }
 
 export function formatNumber(num: number): string {

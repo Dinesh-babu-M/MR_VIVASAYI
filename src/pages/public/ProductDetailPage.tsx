@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Leaf, ShoppingBag, MessageSquare, ShieldCheck, Check, ChevronLeft, 
   ChevronRight, Share2, Heart, Award, HelpCircle, Truck, Package, 
@@ -19,14 +19,64 @@ import ProductCard from '../../components/public/ProductCard';
 export const ProductDetailPage: React.FC = () => {
   const { id, slug } = useParams<{ id: string; slug?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { addItem, updateQuantity, getItem } = useCart();
   const [copied, setCopied] = useState(false);
   const [showShareDropdown, setShowShareDropdown] = useState(false);
   const shareDropdownRef = useRef<HTMLDivElement>(null);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Initialize with synchronous default catalog & local storage so page renders INSTANTLY (0 ms)
+  const [products, setProducts] = useState<Product[]>(() => {
+    const defaultProds = (DEFAULT_DATABASE_SEEDS['products'] || []) as Product[];
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('mrvivasayi_db_products');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const map = new Map<string, Product>();
+            defaultProds.forEach(p => map.set(p.id, p));
+            parsed.forEach((p: Product) => {
+              if (p?.id) map.set(p.id, { ...(map.get(p.id) || {}), ...p });
+            });
+            return Array.from(map.values());
+          }
+        }
+      } catch {}
+    }
+    return defaultProds;
+  });
+
+  const [categories, setCategories] = useState<Category[]>(() => {
+    const defaultCats = (DEFAULT_DATABASE_SEEDS['categories'] || []) as Category[];
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('mrvivasayi_db_categories');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return defaultCats;
+  });
+
+  const [reviews, setReviews] = useState<Review[]>(() => {
+    const defaultRevs = (DEFAULT_DATABASE_SEEDS['reviews'] || []) as Review[];
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('mrvivasayi_db_reviews');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return defaultRevs;
+  });
+
+  // Start with loading = false so product details render immediately without hanging on skeletons
+  const [loading, setLoading] = useState<boolean>(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [buyQuantity, setBuyQuantity] = useState(1);
 
@@ -51,123 +101,169 @@ export const ProductDetailPage: React.FC = () => {
   // Lightbox Zoom Image
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
 
+  // Background cloud catalog sync with timeout (never freezes the page)
   React.useEffect(() => {
+    let isMounted = true;
     async function load() {
       try {
-        const [p, c, r] = await Promise.all([
+        const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 3500));
+        const fetchPromise = Promise.all([
           getJSONStore<Product>('products'),
           getJSONStore<Category>('categories'),
           getJSONStore<Review>('reviews')
         ]);
+        const res = await Promise.race([fetchPromise, timeoutPromise]);
+        if (!isMounted || !res) return;
+
+        const [p, c, r] = res;
         const defaultProds = (DEFAULT_DATABASE_SEEDS['products'] || []) as Product[];
         const defaultCats = (DEFAULT_DATABASE_SEEDS['categories'] || []) as Category[];
-        setProducts(p && p.length > 0 ? p : defaultProds);
-        setCategories(c && c.length > 0 ? c : defaultCats);
-        setReviews(r || []);
+
+        // Always preserve all default catalog items while merging live updates
+        const prodMap = new Map<string, Product>();
+        defaultProds.forEach(dp => prodMap.set(dp.id, dp));
+        (p || []).forEach(lp => {
+          if (lp?.id) prodMap.set(lp.id, { ...(prodMap.get(lp.id) || {}), ...lp });
+        });
+        setProducts(Array.from(prodMap.values()));
+
+        const catMap = new Map<string, Category>();
+        defaultCats.forEach(dc => catMap.set(dc.id, dc));
+        (c || []).forEach(lc => {
+          if (lc?.id) catMap.set(lc.id, { ...(catMap.get(lc.id) || {}), ...lc });
+        });
+        setCategories(Array.from(catMap.values()));
+
+        if (r && r.length > 0) setReviews(r);
       } catch (err) {
-        console.error('Failed to load products/categories in details page:', err);
-        setProducts((DEFAULT_DATABASE_SEEDS['products'] || []) as Product[]);
-        setCategories((DEFAULT_DATABASE_SEEDS['categories'] || []) as Category[]);
-      } finally {
-        setLoading(false);
+        console.error('Failed to sync products in background:', err);
       }
     }
     load();
+    return () => { isMounted = false; };
   }, []);
 
-  // Find target product resiliently by ID, slug, SKU, or prefix
+  // Multi-tier resilient product resolver
   const product = useMemo(() => {
-    if (!products || products.length === 0 || (!id && !slug)) return null;
-    const cleanId = (id || '').trim().toLowerCase();
-    const cleanSlug = (slug || '').trim().toLowerCase();
-    const cleanIdNoHyphen = cleanId.replace(/[-_]/g, '');
-    const cleanSlugNoHyphen = cleanSlug.replace(/[-_]/g, '');
+    if (!products || products.length === 0) return null;
 
-    // 1. Direct match on id parameter (exact id, slug, or sku)
-    if (cleanId) {
-      const matchId = products.find(
-        (p: Product) =>
-          p.id?.toLowerCase() === cleanId ||
-          p.slug?.toLowerCase() === cleanId ||
-          p.sku?.toLowerCase() === cleanId
-      );
-      if (matchId) return matchId;
+    // Collect all tokens from URL params & pathname
+    const pathSegments = location.pathname.split('/').map(s => s.trim()).filter(Boolean);
+    const rawTokens: string[] = [];
+    if (id) rawTokens.push(id);
+    if (slug) rawTokens.push(slug);
+    pathSegments.forEach(seg => {
+      if (seg !== 'products' && seg !== 'product') rawTokens.push(seg);
+    });
 
-      // Match ignoring hyphens (e.g., 'p019' -> 'p-019', 'lif019' -> 'LIF-019')
-      const matchNoHyphen = products.find(
+    const candidates: string[] = [];
+    rawTokens.forEach(t => {
+      try {
+        const decoded = decodeURIComponent(t).trim().toLowerCase();
+        if (decoded && !candidates.includes(decoded)) candidates.push(decoded);
+      } catch {
+        const raw = t.trim().toLowerCase();
+        if (raw && !candidates.includes(raw)) candidates.push(raw);
+      }
+    });
+
+    if (candidates.length === 0) return null;
+
+    // 1. Exact match on id, slug, sku, tamil name, or parameterized name
+    for (const token of candidates) {
+      const found = products.find(
         (p: Product) =>
-          (p.id && p.id.toLowerCase().replace(/[-_]/g, '') === cleanIdNoHyphen) ||
-          (p.sku && p.sku.toLowerCase().replace(/[-_]/g, '') === cleanIdNoHyphen)
+          p.id?.toLowerCase() === token ||
+          p.slug?.toLowerCase() === token ||
+          p.sku?.toLowerCase() === token ||
+          p.tamil_name?.toLowerCase().trim() === token ||
+          p.name?.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-') === token
       );
-      if (matchNoHyphen) return matchNoHyphen;
+      if (found) return found;
     }
 
-    // 2. Direct match on secondary slug parameter (e.g. /products/:id/:slug)
-    if (cleanSlug) {
-      const matchSlug = products.find(
-        (p: Product) =>
-          p.id?.toLowerCase() === cleanSlug ||
-          p.slug?.toLowerCase() === cleanSlug ||
-          p.sku?.toLowerCase() === cleanSlug
-      );
-      if (matchSlug) return matchSlug;
-
-      const matchSlugNoHyphen = products.find(
-        (p: Product) =>
-          (p.id && p.id.toLowerCase().replace(/[-_]/g, '') === cleanSlugNoHyphen) ||
-          (p.sku && p.sku.toLowerCase().replace(/[-_]/g, '') === cleanSlugNoHyphen)
-      );
-      if (matchSlugNoHyphen) return matchSlugNoHyphen;
+    // 2. Hyphen-agnostic match (e.g. 'p019' matches 'p-019', 'lif019' matches 'LIF-019')
+    for (const token of candidates) {
+      const noHyphen = token.replace(/[-_]/g, '');
+      if (noHyphen.length >= 3) {
+        const found = products.find(
+          (p: Product) =>
+            (p.id && p.id.toLowerCase().replace(/[-_]/g, '') === noHyphen) ||
+            (p.sku && p.sku.toLowerCase().replace(/[-_]/g, '') === noHyphen)
+        );
+        if (found) return found;
+      }
     }
 
-    // 3. Prefix matching for friendly shortcodes or 6-char slugs (e.g. 'karupa' -> Karupatti / Palm Jaggery)
-    if (cleanId && cleanId.length >= 4) {
-      const byPrefix = products.find(
-        (p: Product) =>
-          p.id?.toLowerCase().startsWith(cleanId) ||
-          p.slug?.toLowerCase().startsWith(cleanId) ||
-          p.name?.toLowerCase().startsWith(cleanId) ||
-          (p.tamil_name && p.tamil_name.toLowerCase().includes(cleanId))
-      );
-      if (byPrefix) return byPrefix;
+    // 3. Leading zero agnostic match (e.g. 'p-19' or 'p19' matches 'p-019')
+    for (const token of candidates) {
+      const stripped = token.replace(/[-_]0+/, '-').replace(/^0+/, '');
+      const found = products.find((p: Product) => {
+        const pIdStripped = p.id?.toLowerCase().replace(/[-_]0+/, '-').replace(/^0+/, '');
+        const pSkuStripped = p.sku?.toLowerCase().replace(/[-_]0+/, '-').replace(/^0+/, '');
+        return (pIdStripped && pIdStripped === stripped) || (pSkuStripped && pSkuStripped === stripped);
+      });
+      if (found) return found;
     }
 
-    if (cleanSlug && cleanSlug.length >= 4) {
-      const bySlugPrefix = products.find(
+    // 4. Token starts with product id or slug (e.g. 'p-019-palm-jaggery' or 'p-019dummy')
+    for (const token of candidates) {
+      const found = products.find(
         (p: Product) =>
-          p.id?.toLowerCase().startsWith(cleanSlug) ||
-          p.slug?.toLowerCase().startsWith(cleanSlug) ||
-          p.name?.toLowerCase().startsWith(cleanSlug) ||
-          (p.tamil_name && p.tamil_name.toLowerCase().includes(cleanSlug))
+          (p.id && token.startsWith(p.id.toLowerCase())) ||
+          (p.slug && token.startsWith(p.slug.toLowerCase()))
       );
-      if (bySlugPrefix) return bySlugPrefix;
+      if (found) return found;
+    }
+
+    // 5. Short-code & prefix matching (e.g. 'karupa' matches Karupatti, 'pjaggr' matches Palm Jaggery)
+    for (const token of candidates) {
+      if (token.length >= 4) {
+        const found = products.find(
+          (p: Product) =>
+            p.id?.toLowerCase().startsWith(token) ||
+            p.slug?.toLowerCase().startsWith(token) ||
+            p.name?.toLowerCase().startsWith(token) ||
+            (p.tamil_name && p.tamil_name.toLowerCase().includes(token))
+        );
+        if (found) return found;
+      }
     }
 
     return null;
-  }, [products, id, slug]);
+  }, [products, id, slug, location.pathname]);
 
   // Reset active image index and quantity when product or route changes
   React.useEffect(() => {
     setActiveImageIndex(0);
     setBuyQuantity(1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [id, slug]);
+  }, [id, slug, location.pathname]);
 
-  // Prepare images array strictly from catalog data - NO fake Unsplash photos injected
+  // Prepare images array strictly from catalog data with deduplication
   const productImages = useMemo(() => {
     if (!product) return [];
-    if (product.images && product.images.length > 0) {
-      const valid = product.images.filter(
-        (img) => typeof img === 'string' && img.trim().length > 0
-      );
-      if (valid.length > 0) return valid;
+    const list: string[] = [];
+    if (Array.isArray(product.images) && product.images.length > 0) {
+      product.images.forEach(img => {
+        if (typeof img === 'string' && img.trim().length > 0) list.push(img.trim());
+      });
     }
-    if (product.image_url && product.image_url.trim().length > 0) {
-      return [product.image_url];
+    if (product.image_url && typeof product.image_url === 'string' && product.image_url.trim().length > 0) {
+      const trimmed = product.image_url.trim();
+      if (!list.includes(trimmed)) {
+        list.unshift(trimmed);
+      }
     }
-    // Clean neutral fallback placeholder only if product has NO image at all
-    return ['https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=800&q=80'];
+    if (list.length === 0) {
+      list.push('https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=800&q=80');
+    }
+    return list;
   }, [product]);
+
+  const safeActiveIndex = (activeImageIndex >= 0 && activeImageIndex < productImages.length)
+    ? activeImageIndex
+    : 0;
 
   // Similar products recommendation from the same category
   const similarProducts = useMemo(() => {
@@ -186,6 +282,7 @@ export const ProductDetailPage: React.FC = () => {
 
   const cartItem = product ? getItem(product.id) : undefined;
   const isInCart = Boolean(cartItem && cartItem.quantity > 0);
+  const cartQty = cartItem?.quantity || 0;
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -198,10 +295,24 @@ export const ProductDetailPage: React.FC = () => {
   }, []);
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(window.location.href);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = window.location.href;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopied(true);
+      toast.success('Product link copied to clipboard!');
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      toast.error('Could not copy link');
+    }
     setShowShareDropdown(false);
-    setTimeout(() => setCopied(false), 2500);
   };
 
   const handleShareWhatsApp = () => {
@@ -237,15 +348,23 @@ export const ProductDetailPage: React.FC = () => {
     setActiveImageIndex((prev) => (prev - 1 + productImages.length) % productImages.length);
   };
 
-  // 1. Loading State
+  const handleBack = () => {
+    if (window.history.length > 2) {
+      navigate(-1);
+    } else {
+      navigate('/products');
+    }
+  };
+
+  // 1. Loading State (rarely shown because synchronous seeds are pre-populated)
   if (loading) {
     return <ProductDetailSkeleton />;
   }
 
-  // 2. Product Not Found State (Fixes infinite skeleton / dummy fallback)
+  // 2. Product Not Found State (Graceful fallback with suggested products)
   if (!product) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-16 sm:py-24 text-center space-y-6">
+      <div className="max-w-4xl mx-auto px-4 py-16 sm:py-24 text-center space-y-8">
         <div className="w-20 h-20 bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 rounded-3xl flex items-center justify-center mx-auto shadow-inner border border-amber-200 dark:border-amber-800">
           <AlertCircle className="w-10 h-10" />
         </div>
@@ -254,10 +373,10 @@ export const ProductDetailPage: React.FC = () => {
             Product Not Found
           </h2>
           <p className="text-sm text-gray-600 dark:text-emerald-300 max-w-md mx-auto leading-relaxed">
-            The traditional food produce you are looking for may have been updated, unpublished, or moved in our catalog.
+            The traditional food produce you requested may have been moved or updated. Explore our full catalog of heritage organic foods below!
           </p>
         </div>
-        <div className="flex flex-wrap justify-center gap-3 pt-4">
+        <div className="flex flex-wrap justify-center gap-3 pt-2">
           <Link
             to="/products"
             className="inline-flex items-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-6 py-3 rounded-2xl transition-all shadow-md active:scale-95 text-sm"
@@ -273,21 +392,41 @@ export const ProductDetailPage: React.FC = () => {
             <span>Return to Home</span>
           </Link>
         </div>
+
+        {/* Suggested popular products grid */}
+        {products.length > 0 && (
+          <div className="pt-10 border-t border-emerald-100 dark:border-emerald-800/80 text-left">
+            <h3 className="font-serif font-bold text-lg text-gray-900 dark:text-emerald-100 mb-4 text-center">
+              Popular Traditional Produce You Might Like
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {products.slice(0, 4).map((p) => (
+                <ProductCard key={p.id} product={p} />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
-  const basePrice = product.offer_price || product.selling_price;
-  const hasOffer = Boolean(product.offer_price && product.offer_price > 0 && product.offer_price < product.selling_price);
-  const hasMrpDiscount = Boolean(product.mrp && product.mrp > basePrice);
-  const discountPercent = hasMrpDiscount && product.mrp
-    ? Math.round(((product.mrp - basePrice) / product.mrp) * 100)
-    : hasOffer
-    ? Math.round(((product.selling_price - product.offer_price!) / product.selling_price) * 100)
+  // Safe pricing calculations with strict numeric normalization
+  const basePrice = Number(product.offer_price) > 0 && Number(product.offer_price) < Number(product.selling_price)
+    ? Number(product.offer_price)
+    : Number(product.selling_price) || 0;
+  const sellingPrice = Number(product.selling_price) || 0;
+  const mrp = Number(product.mrp) || 0;
+  const hasOffer = Boolean(product.offer_price && Number(product.offer_price) > 0 && Number(product.offer_price) < sellingPrice);
+  const hasMrpDiscount = Boolean(mrp > basePrice);
+  const discountPercent = hasMrpDiscount && mrp > 0
+    ? Math.round(((mrp - basePrice) / mrp) * 100)
+    : hasOffer && sellingPrice > 0
+    ? Math.round(((sellingPrice - basePrice) / sellingPrice) * 100)
     : 0;
 
-  const isOutOfStock = product.current_stock <= 0;
-  const isBelow20 = product.current_stock > 0 && product.current_stock < 20;
+  const currentStock = Math.max(0, Number(product.current_stock) || 0);
+  const isOutOfStock = currentStock <= 0 || product.stock_status === 'OUT_OF_STOCK';
+  const isBelow20 = currentStock > 0 && currentStock < 20;
 
   const activeCategoryObj = categories.find((c: Category) => c.id === product.category_id);
 
@@ -421,7 +560,7 @@ export const ProductDetailPage: React.FC = () => {
         </div>
 
         <button
-          onClick={() => navigate(-1)}
+          onClick={handleBack}
           className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 font-bold bg-emerald-50 dark:bg-emerald-950 px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-3.5 h-3.5" /> Back
@@ -434,11 +573,15 @@ export const ProductDetailPage: React.FC = () => {
         {/* Left Column: Multi-Image Carousel & Thumbnail Selector */}
         <div className="space-y-4">
           <div className="relative aspect-square rounded-3xl overflow-hidden shadow-2xl border border-emerald-100 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950 group">
-            {/* Main Active Image */}
+            {/* Main Active Image with Zoom on click */}
             <img
-              src={productImages[activeImageIndex]}
-              alt={`${product.name} - Angle ${activeImageIndex + 1}`}
-              className="w-full h-full object-cover transition-all duration-500"
+              src={productImages[safeActiveIndex] || product.image_url || 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=800&q=80'}
+              alt={`${product.name} - Angle ${safeActiveIndex + 1}`}
+              className="w-full h-full object-cover transition-all duration-500 cursor-zoom-in"
+              onClick={() => setLightboxImg(productImages[safeActiveIndex] || product.image_url || null)}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=800&q=80';
+              }}
             />
 
             {/* Carousel Previous Button (Only shown if multiple real images exist) */}
@@ -566,7 +709,14 @@ export const ProductDetailPage: React.FC = () => {
                       : 'border-emerald-100 dark:border-emerald-800 opacity-70 hover:opacity-100'
                   }`}
                 >
-                  <img src={imgUrl} alt={`Thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
+                  <img 
+                    src={imgUrl} 
+                    alt={`Thumbnail ${idx + 1}`} 
+                    className="w-full h-full object-cover" 
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=200&q=80';
+                    }}
+                  />
                 </button>
               ))}
             </div>
@@ -814,8 +964,10 @@ export const ProductDetailPage: React.FC = () => {
                 onClick={() => {
                   if (isInCart) {
                     updateQuantity(product.id, (cartItem?.quantity || 1) + 1);
+                    toast.success(`Updated cart quantity to ${(cartItem?.quantity || 1) + 1}`);
                   } else {
                     addItem(product, buyQuantity);
+                    toast.success(`Added ${buyQuantity} pack(s) to order!`);
                   }
                 }}
                 className="w-full flex items-center justify-center space-x-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-black py-4 px-6 rounded-2xl shadow-lg hover:shadow-xl transition-all text-sm active:scale-95 cursor-pointer"
@@ -826,7 +978,7 @@ export const ProductDetailPage: React.FC = () => {
 
               <a
                 href={`https://wa.me/${getWhatsAppOrdersNumber()}?text=${encodeURIComponent(
-                  `Hello MR. VIVASAYI, I want to order ${product.name} (${product.pack_size || '1 unit'}). Price: ${formatPrice(basePrice)}. Quantity: ${isInCart ? cartItem?.quantity : buyQuantity}.`
+                  `Hello MR. VIVASAYI,\nI want to order: *${product.name}*\nPack Size: ${product.pack_size || `1 ${product.unit}`}\nPrice: ${formatPrice(basePrice)}\nQuantity: ${isInCart ? cartItem?.quantity : buyQuantity}\nTotal: ${formatPrice(basePrice * (isInCart ? (cartItem?.quantity || 1) : buyQuantity))}\n\nProduct Link: ${window.location.href}`
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -1020,10 +1172,10 @@ export const ProductDetailPage: React.FC = () => {
                   <div className="pt-3 border-t border-emerald-100 dark:border-emerald-800/60 flex items-center justify-between text-xs">
                     <div className="flex items-center space-x-2">
                       <div className="w-7 h-7 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-xs">
-                        {rev.customer_name.charAt(0).toUpperCase()}
+                        {(rev.customer_name || 'Customer').charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <div className="font-bold text-gray-900 dark:text-emerald-100">{rev.customer_name}</div>
+                        <div className="font-bold text-gray-900 dark:text-emerald-100">{rev.customer_name || 'Verified Customer'}</div>
                         <div className="text-emerald-700 dark:text-emerald-400 text-[11px] font-medium">
                           {rev.customer_location || 'Tamil Nadu'}
                         </div>
@@ -1086,7 +1238,7 @@ export const ProductDetailPage: React.FC = () => {
                         key={starNum}
                         type="button"
                         onClick={() => {
-                          const suggested = product.name.toLowerCase().includes('oil')
+                          const suggested = (product?.name || '').toLowerCase().includes('oil')
                             ? (starNum === 5 ? 'Pure Marachekku Cold-Pressed Aroma & Outstanding Taste!' : 'Very Good Cold-Pressed Oil')
                             : (starNum === 5 ? 'Authentic Native Heirloom Rice - Wholesome Family Health!' : 'Great Traditional Quality');
                           setReviewFormData({
