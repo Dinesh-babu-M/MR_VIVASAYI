@@ -1132,7 +1132,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                     className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 px-4 rounded-xl shadow-lg hover:shadow-xl transition-all text-base group cursor-pointer active:scale-98"
                   >
                     <User className="w-5 h-5 text-amber-300" />
-                    <span>Proceed to Delivery Details (Step 2 of 4)</span>
+                    <span>Proceed to Delivery Details </span>
                     <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                   </button>
 
@@ -1154,28 +1154,8 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                     <User className="w-4 h-4 text-emerald-700 dark:text-amber-300" /> 1. Customer Contact Details (Step 2 of 4)
                   </span>
                   <p className="text-[11px] text-gray-600 dark:text-emerald-300">
-                    Enter your name and WhatsApp number. Returning customers will have their details auto-filled!
+                    Enter your WhatsApp phone number and name. Returning customers will have their details auto-filled!
                   </p>
-                </div>
-
-                {/* Full Name */}
-                <div>
-                  <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1">
-                    Customer Full Name *
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
-                    <input
-                      type="text"
-                      placeholder="e.g. Ramesh Kumar"
-                      value={formData.fullName}
-                      onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                      className={`w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-bold text-gray-900 dark:text-emerald-100 ${
-                        formErrors.fullName ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
-                      }`}
-                    />
-                  </div>
-                  {formErrors.fullName && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.fullName}</p>}
                 </div>
 
                 {/* Phone Number with Country Selector & Auto-Fetch */}
@@ -1257,6 +1237,26 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                       </div>
                     </div>
                   )}
+                </div>
+
+                {/* Full Name */}
+                <div>
+                  <label className="block font-bold text-gray-700 dark:text-emerald-200 mb-1">
+                    Customer Full Name *
+                  </label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+                    <input
+                      type="text"
+                      placeholder="e.g. Ramesh Kumar"
+                      value={formData.fullName}
+                      onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                      className={`w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-bold text-gray-900 dark:text-emerald-100 ${
+                        formErrors.fullName ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
+                      }`}
+                    />
+                  </div>
+                  {formErrors.fullName && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.fullName}</p>}
                 </div>
 
                 {/* Email Address */}
@@ -1930,7 +1930,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                   ) : (
                     <>
                       <MessageSquare className="w-5 h-5 text-amber-300" />
-                      <span>Submit & Send Order via WhatsApp 📲</span>
+                      <span>Place Order  📲</span>
                     </>
                   )}
                 </button>
