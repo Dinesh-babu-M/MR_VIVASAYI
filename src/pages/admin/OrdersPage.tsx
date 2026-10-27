@@ -56,9 +56,18 @@ import { getFormattedStoreAddress, getFormattedStorePhone } from '../../lib/stor
 
 import { RefreshSpinnerModal } from '../../components/common/RefreshSpinnerModal';
 import { AutoRefreshDropdown } from '../../components/common/AutoRefreshDropdown';
-import { getJSONStore, setJSONStore, syncOrderStockChange } from '../../lib/dbManager';
+import { getJSONStore, setJSONStore, syncOrderStockChange, deleteRecordFromDB } from '../../lib/dbManager';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { COURIER_PARTNERS, getCourierPartner } from '../../lib/deliveryRulesEngine';
+import {
+  printAmazonFlipkartCourierLabels,
+  printAmazonFlipkartInvoices,
+  generateAmazonFlipkartCourierLabelHtml,
+  generateAmazonFlipkartInvoiceHtml,
+  STORE_NAME,
+  STORE_FULL_ADDRESS,
+  STORE_PHONE
+} from '../../lib/ecomPrintTemplates';
 import toast from 'react-hot-toast';
 
 // ─── Status helpers ────────────────────────────────────────────────────────────
@@ -68,6 +77,7 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   CONFIRMED: 'Confirmed',
   PACKING: 'Packing',
   READY: 'Ready',
+  DISPATCHED: 'Dispatched',
   OUT_FOR_DELIVERY: 'Out for Delivery',
   DELIVERED: 'Delivered',
   CANCELLED: 'Cancelled',
@@ -80,6 +90,7 @@ const statusBadgeClass = (status: OrderStatus): string => {
     case 'CONFIRMED':       return 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white border border-indigo-400 shadow-2xs font-black tracking-wide';
     case 'PACKING':         return 'bg-gradient-to-r from-amber-400 to-amber-600 text-amber-950 border border-amber-300 shadow-2xs font-black tracking-wide';
     case 'READY':           return 'bg-gradient-to-r from-yellow-400 to-amber-500 text-yellow-950 border border-yellow-300 shadow-2xs font-black tracking-wide';
+    case 'DISPATCHED':      return 'bg-gradient-to-r from-cyan-600 to-blue-700 text-white border border-cyan-400 shadow-2xs font-black tracking-wide';
     case 'OUT_FOR_DELIVERY':return 'bg-gradient-to-r from-orange-500 to-amber-600 text-white border border-orange-400 shadow-2xs font-black tracking-wide';
     case 'DELIVERED':       return 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white border border-emerald-400 shadow-2xs font-black tracking-wide';
     case 'CANCELLED':       return 'bg-gradient-to-r from-rose-500 to-red-600 text-white border border-rose-400 shadow-2xs font-black tracking-wide';
@@ -180,148 +191,18 @@ const DetailRow: React.FC<{ label: string; children: React.ReactNode }> = ({ lab
   </div>
 );
 
-// ─── Courier Parcel Shipping Label Generator ─────────────────────────────────
+// ─── Courier Parcel Shipping Label Generator (Amazon & Flipkart Standard) ────
 
 export const generateCourierLabelHtml = (order: Order, courierPartnerName?: string): string => {
-  const partner = courierPartnerName || order.courier_partner || 'ST Courier';
-  const tracking = order.tracking_number || 'PENDING DISPATCH';
-  const totalWeight = order.weight_grams ? (order.weight_grams >= 1000 ? `${(order.weight_grams/1000).toFixed(2)} KG` : `${order.weight_grams} G`) : '1.0 KG';
-  const isCOD = order.payment_status !== 'PAID' && order.payment_method === 'CASH';
-  const pincodeMatch = (order.delivery_address || '').match(/\b\d{6}\b/);
-  const destinationPin = pincodeMatch ? pincodeMatch[0] : '';
-
-  return `
-    <div style="border: 3px solid #064e3b; border-radius: 12px; padding: 16px; max-width: 550px; margin: 0 auto 20px; font-family: 'Segoe UI', Arial, sans-serif; background: #fff; color: #111; box-sizing: border-box;">
-      <!-- Label Header -->
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #064e3b; padding-bottom: 8px; margin-bottom: 10px;">
-        <div>
-          <div style="font-size: 16px; font-weight: 900; color: #064e3b; text-transform: uppercase;">🌿 MR. VIVASAYI ORGANIC STORE</div>
-          <div style="font-size: 10px; color: #555;">Farm Direct Agro Logistics & Courier Parcel</div>
-        </div>
-        <div style="text-align: right;">
-          <div style="background: #064e3b; color: #fde68a; font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;">
-            ${partner}
-          </div>
-          <div style="font-size: 10px; font-family: monospace; font-weight: bold; margin-top: 3px;">AWB: ${tracking}</div>
-        </div>
-      </div>
-
-      <!-- Payment / Order Status Banner -->
-      <div style="display: flex; justify-content: space-between; align-items: center; background: ${isCOD ? '#fef3c7' : '#dcfce7'}; border: 2px solid ${isCOD ? '#d97706' : '#16a34a'}; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; font-size: 11px; font-weight: 900;">
-        <span style="color: ${isCOD ? '#92400e' : '#166534'};">
-          ${isCOD ? `⚠️ CASH ON DELIVERY (COD) — COLLECT ₹${order.total}` : `✓ PREPAID PARCEL — DO NOT COLLECT CASH`}
-        </span>
-        <span style="font-family: monospace; font-size: 12px; color: #111;">REF: #${order.order_number}</span>
-      </div>
-
-      <!-- SHIP TO (Recipient Destination) -->
-      <div style="border: 2px solid #111; border-radius: 10px; padding: 12px; margin-bottom: 12px; background: #fafafa;">
-        <div style="font-size: 10px; font-weight: 900; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px;">DELIVER TO / RECIPIENT:</div>
-        <div style="font-size: 17px; font-weight: 900; color: #000; text-transform: uppercase; margin-bottom: 5px;">
-          ${order.customer_name_snapshot || 'Valued Customer'}
-        </div>
-        <div style="font-size: 12px; color: #222; line-height: 1.4; margin-bottom: 8px;">
-          ${order.delivery_address || 'Customer Delivery Address'}
-        </div>
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px dashed #ccc; padding-top: 8px;">
-          <div>
-            <div style="font-size: 10px; color: #555;">Contact Phone:</div>
-            <div style="font-size: 14px; font-weight: 900; color: #000; font-family: monospace;">
-              📞 ${order.customer_phone_snapshot || 'N/A'}
-            </div>
-          </div>
-          ${destinationPin ? `
-          <div style="text-align: right;">
-            <div style="font-size: 9px; font-weight: 800; color: #064e3b; text-transform: uppercase;">PINCODE:</div>
-            <div style="font-size: 20px; font-weight: 900; font-family: monospace; color: #064e3b; background: #e6f4ea; padding: 2px 8px; border-radius: 6px; border: 1.5px solid #064e3b;">
-              ${destinationPin}
-            </div>
-          </div>` : ''}
-        </div>
-      </div>
-
-      <!-- FROM (Shipper / Return Address) -->
-      <div style="display: flex; justify-content: space-between; font-size: 10px; border: 1px solid #ddd; border-radius: 8px; padding: 8px 10px; background: #fff; margin-bottom: 10px;">
-        <div>
-          <div style="font-weight: 900; color: #064e3b; text-transform: uppercase;">SHIPPER (FROM / RETURN ADDRESS):</div>
-          <div style="font-weight: bold; color: #222;">MR. VIVASAYI ORGANIC FOODS MART</div>
-          <div style="color: #444;">Bypass Road, Cumbum, Theni District, Tamil Nadu - 625516</div>
-          <div style="color: #444; font-weight: bold;">Store Support: +91 97893 25262 / +91 98765 43210</div>
-        </div>
-        <div style="text-align: right; border-left: 1px solid #eee; padding-left: 10px; min-width: 100px;">
-          <div style="font-size: 9px; color: #666;">Weight:</div>
-          <div style="font-size: 13px; font-weight: 900; color: #064e3b; font-family: monospace;">${totalWeight}</div>
-          <div style="font-size: 9px; color: #666; margin-top: 3px;">Content:</div>
-          <div style="font-weight: bold; font-size: 10px;">Farm Produce</div>
-        </div>
-      </div>
-
-      <!-- Barcode simulation -->
-      <div style="text-align: center; font-family: monospace; font-size: 13px; letter-spacing: 3px; padding-top: 4px; border-top: 1px dashed #bbb;">
-        ||| | ||||| || |||||| | |||| ||| |||||||
-        <div style="font-size: 9px; letter-spacing: 1px; color: #555; margin-top: 2px;">*${order.tracking_number || order.order_number}*</div>
-      </div>
-    </div>
-  `;
+  return generateAmazonFlipkartCourierLabelHtml(order, courierPartnerName);
 };
 
 export const handlePrintSingleCourierLabel = (order: Order) => {
-  const printWindow = window.open('', '_blank', 'width=700,height=800');
-  if (!printWindow) return;
-  printWindow.document.write(`
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>MR. VIVASAYI Courier Label - ${order.order_number}</title>
-        <style>
-          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; margin: 0; background: #fff; }
-          @media print {
-            body { padding: 0; }
-            @page { margin: 8mm; }
-          }
-        </style>
-      </head>
-      <body>
-        ${generateCourierLabelHtml(order)}
-      </body>
-    </html>
-  `);
-  printWindow.document.close();
-  printWindow.focus();
-  setTimeout(() => printWindow.print(), 350);
+  printAmazonFlipkartCourierLabels(order);
 };
 
 export const handlePrintBulkCourierLabels = (ordersList: Order[]) => {
-  const printWindow = window.open('', '_blank', 'width=750,height=900');
-  if (!printWindow) return;
-
-  const pagesHtml = ordersList.map((order, idx) => `
-    <div style="${idx < ordersList.length - 1 ? 'page-break-after: always;' : ''}">
-      ${generateCourierLabelHtml(order)}
-    </div>
-  `).join('');
-
-  printWindow.document.write(`
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>MR. VIVASAYI Mart Bulk Courier Labels (${ordersList.length} Parcels)</title>
-        <style>
-          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; margin: 0; background: #fff; }
-          @media print {
-            body { padding: 0; }
-            @page { margin: 8mm; }
-          }
-        </style>
-      </head>
-      <body>
-        ${pagesHtml}
-      </body>
-    </html>
-  `);
-  printWindow.document.close();
-  printWindow.focus();
-  setTimeout(() => printWindow.print(), 400);
+  printAmazonFlipkartCourierLabels(ordersList);
 };
 
 // ─── Order Detail Modal ─────────────────────────────────────────────────────────
@@ -368,106 +249,7 @@ const OrderDetailModal: React.FC<DetailModalProps> = ({ order, onClose, onEditDe
   };
 
   const handlePrintBill = () => {
-    const printWindow = window.open('', '_blank', 'width=800,height=900');
-    if (!printWindow) return;
-
-    const itemsHtml = (order.items || []).map((it, idx) => `
-      <tr>
-        <td style="padding: 8px; border-bottom: 1px solid #eee;">${idx + 1}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>${it.product_name_snapshot}</strong> ${it.pack_size_snapshot ? `(${it.pack_size_snapshot})` : ''}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${it.quantity}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">₹${it.unit_price_snapshot}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">₹${it.total}</td>
-      </tr>
-    `).join('');
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>MR. VIVASAYI Mart Order Bill - ${order.order_number}</title>
-          <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 24px; color: #064e3b; margin: 0; }
-            .header { text-align: center; border-bottom: 2px solid #064e3b; padding-bottom: 12px; margin-bottom: 20px; }
-            .header h1 { margin: 0; color: #064e3b; font-size: 24px; font-weight: 800; }
-            .header p { margin: 4px 0 0; color: #666; font-size: 12px; }
-            .meta-grid { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 13px; gap: 16px; }
-            .meta-box { flex: 1; background: #f0fdf4; padding: 12px 16px; border-radius: 12px; border: 1px solid #bbf7d0; }
-            .meta-box h4 { margin: 0 0 8px; color: #064e3b; font-size: 12px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px; }
-            .meta-box p { margin: 3px 0; color: #1e293b; font-size: 12px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
-            th { background: #064e3b; color: white; padding: 10px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-            .totals { margin-left: auto; width: 320px; background: #064e3b; color: white; padding: 16px; border-radius: 12px; font-size: 12px; }
-            .totals-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
-            .grand-total { border-top: 1px solid #047857; padding-top: 8px; font-size: 15px; font-weight: 900; color: #fde68a; }
-            .footer { text-align: center; margin-top: 35px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 12px; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>🌿 MR. VIVASAYI Mart</h1>
-            <p>Good Food. Good Life. | Store Bill & Order Receipt</p>
-            <p style="margin: 3px 0 0; font-size: 11px; color: #047857;">📍 ${getFormattedStoreAddress()} | Ph: ${getFormattedStorePhone()}</p>
-          </div>
-          <div class="meta-grid">
-            <div class="meta-box">
-              <h4>Order Information</h4>
-              <p><strong>Order Number:</strong> ${order.order_number}</p>
-              <p><strong>Order Source:</strong> ${order.source}</p>
-              <p><strong>Order Date:</strong> ${new Date(order.created_at).toLocaleString()}</p>
-              <p><strong>Order Status:</strong> ${order.status}</p>
-            </div>
-            <div class="meta-box">
-              <h4>Customer & Delivery Address</h4>
-              <p><strong>Customer Name:</strong> ${order.customer_name_snapshot || 'Walk-in Customer'}</p>
-              <p><strong>Phone Number:</strong> ${order.customer_phone_snapshot || '—'}</p>
-              <p><strong>Delivery Area:</strong> ${order.delivery_area || 'Cumbum Store'}</p>
-              <p><strong>Delivery Address:</strong> ${order.delivery_address || 'Over the counter / Store Pickup'}</p>
-            </div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 30px;">#</th>
-                <th>Product Description</th>
-                <th style="text-align: center;">Qty</th>
-                <th style="text-align: right;">Unit Price</th>
-                <th style="text-align: right;">Line Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemsHtml}
-            </tbody>
-          </table>
-          <div class="totals">
-            <div class="totals-row">
-              <span>Subtotal:</span>
-              <span>₹${order.subtotal}</span>
-            </div>
-            <div class="totals-row">
-              <span>Delivery Fee:</span>
-              <span>+₹${order.delivery_fee}</span>
-            </div>
-            <div class="totals-row">
-              <span>Payment Mode:</span>
-              <span>${order.payment_method} (${order.payment_status})</span>
-            </div>
-            <div class="totals-row grand-total">
-              <span>Total Amount Paid:</span>
-              <span>₹${order.total}</span>
-            </div>
-          </div>
-          <div class="footer">
-            <p>Thank you for shopping with MR. VIVASAYI Mart! For queries, call +91 9789325262.</p>
-          </div>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 400);
+    printAmazonFlipkartInvoices(order);
   };
 
   const handleExportSingleOrderCSV = () => {
@@ -1243,7 +1025,7 @@ const EditOrderDetailsModal: React.FC<EditOrderModalProps> = ({ order, products,
 // ─── Main Component ─────────────────────────────────────────────────────────────
 
 const ALL_STATUSES: OrderStatus[] = [
-  'NEW', 'CONFIRMED', 'PACKING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'RETURNED',
+  'NEW', 'CONFIRMED', 'PACKING', 'READY', 'DISPATCHED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'RETURNED',
 ];
 
 export const OrdersPage: React.FC = () => {
@@ -1765,237 +1547,19 @@ MR. VIVASAYI Mart (+91 9789325262)`;
   };
 
   // Single Order Printer Handler
+  // Single Order Printer Handler (Amazon & Flipkart Standard Format)
   const handlePrintSingleOrder = (order: Order) => {
-    const printWindow = window.open('', '_blank', 'width=800,height=900');
-    if (!printWindow) return;
-
-    const itemsHtml = (order.items || []).map((it, idx) => `
-      <tr>
-        <td style="padding: 8px; border-bottom: 1px solid #eee;">${idx + 1}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>${it.product_name_snapshot}</strong> ${it.pack_size_snapshot ? `(${it.pack_size_snapshot})` : ''}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${it.quantity}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">₹${it.unit_price_snapshot}</td>
-        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">₹${it.total}</td>
-      </tr>
-    `).join('');
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>MR. VIVASAYI Mart Order Bill - ${order.order_number}</title>
-          <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 24px; color: #064e3b; margin: 0; }
-            .header { text-align: center; border-bottom: 2px solid #064e3b; padding-bottom: 12px; margin-bottom: 20px; }
-            .header h1 { margin: 0; color: #064e3b; font-size: 24px; font-weight: 800; }
-            .header p { margin: 4px 0 0; color: #666; font-size: 12px; }
-            .meta-grid { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 13px; gap: 16px; }
-            .meta-box { flex: 1; background: #f0fdf4; padding: 12px 16px; border-radius: 12px; border: 1px solid #bbf7d0; }
-            .meta-box h4 { margin: 0 0 8px; color: #064e3b; font-size: 12px; text-transform: uppercase; font-weight: 800; }
-            .meta-box p { margin: 3px 0; color: #1e293b; font-size: 12px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
-            th { background: #064e3b; color: white; padding: 10px; text-align: left; font-size: 11px; text-transform: uppercase; }
-            .totals { margin-left: auto; width: 320px; background: #064e3b; color: white; padding: 16px; border-radius: 12px; font-size: 12px; }
-            .totals-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
-            .grand-total { border-top: 1px solid #047857; padding-top: 8px; font-size: 15px; font-weight: 900; color: #fde68a; }
-            .footer { text-align: center; margin-top: 35px; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 12px; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>🌿 MR. VIVASAYI Mart</h1>
-            <p>Good Food. Good Life. | Store Bill & Order Receipt</p>
-            <p style="margin: 3px 0 0; font-size: 11px; color: #047857;">📍 ${getFormattedStoreAddress()} | Ph: ${getFormattedStorePhone()}</p>
-          </div>
-          <div class="meta-grid">
-            <div class="meta-box">
-              <h4>Order Metadata</h4>
-              <p><strong>Order Number:</strong> ${order.order_number}</p>
-              <p><strong>Source:</strong> ${order.source}</p>
-              <p><strong>Date:</strong> ${new Date(order.created_at).toLocaleString()}</p>
-              <p><strong>Status:</strong> ${order.status}</p>
-            </div>
-            <div class="meta-box">
-              <h4>Customer & Delivery Address</h4>
-              <p><strong>Customer Name:</strong> ${order.customer_name_snapshot || 'Walk-in Customer'}</p>
-              <p><strong>Phone:</strong> ${order.customer_phone_snapshot || '—'}</p>
-              <p><strong>Delivery Area:</strong> ${order.delivery_area || 'Cumbum Store'}</p>
-              <p><strong>Delivery Address:</strong> ${order.delivery_address || 'Over the counter / Store Pickup'}</p>
-            </div>
-          </div>
-          ${order.payment_status === 'PAID' && order.payment_method !== 'CASH'
-            ? `<div style="background: #dcfce7; border: 2px solid #16a34a; color: #14532d; padding: 10px 14px; border-radius: 10px; font-weight: 900; text-align: center; margin-bottom: 15px; font-size: 13px;">✓ PREPAID ORDER — ONLINE PAYMENT VERIFIED (Amount Paid: ₹${order.total})</div>`
-            : `<div style="background: #fef3c7; border: 2px solid #d97706; color: #78350f; padding: 10px 14px; border-radius: 10px; font-weight: 900; text-align: center; margin-bottom: 15px; font-size: 13px;">⚠️ CASH ON DELIVERY (COD ORDER) — COLLECT CASH: ₹${order.total}</div>`
-          }
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 30px;">#</th>
-                <th>Product Description</th>
-                <th style="text-align: center;">Qty</th>
-                <th style="text-align: right;">Unit Price</th>
-                <th style="text-align: right;">Line Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemsHtml}
-            </tbody>
-          </table>
-          <div class="totals">
-            <div class="totals-row">
-              <span>Subtotal:</span>
-              <span>₹${order.subtotal}</span>
-            </div>
-            <div class="totals-row">
-              <span>Delivery Fee:</span>
-              <span>+₹${order.delivery_fee}</span>
-            </div>
-            <div class="totals-row">
-              <span>Payment Mode:</span>
-              <span>${order.payment_method} (${order.payment_status})</span>
-            </div>
-            <div class="totals-row grand-total">
-              <span>Total Amount Paid:</span>
-              <span>₹${order.total}</span>
-            </div>
-          </div>
-          <div class="footer">
-            <p>Thank you for shopping with MR. VIVASAYI Mart! For queries, call +91 9789325262.</p>
-          </div>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 400);
+    printAmazonFlipkartInvoices(order);
   };
 
-  // Multiple Batch Order Printer Handler
+  // Multiple Batch Order Printer Handler (Amazon & Flipkart Standard Format)
   const handleBatchPrintSelectedOrders = () => {
     if (selectedOrderIds.length === 0) {
       toast.error('No orders selected for printing');
       return;
     }
-
     const selectedOrdersList = orders.filter(o => selectedOrderIds.includes(o.id));
-    const printWindow = window.open('', '_blank', 'width=900,height=950');
-    if (!printWindow) return;
-
-    const ordersPagesHtml = selectedOrdersList.map((order, orderIdx) => {
-      const itemsHtml = (order.items || []).map((it, idx) => `
-        <tr>
-          <td style="padding: 6px; border-bottom: 1px solid #eee;">${idx + 1}</td>
-          <td style="padding: 6px; border-bottom: 1px solid #eee;"><strong>${it.product_name_snapshot}</strong> ${it.pack_size_snapshot ? `(${it.pack_size_snapshot})` : ''}</td>
-          <td style="padding: 6px; border-bottom: 1px solid #eee; text-align: center;">${it.quantity}</td>
-          <td style="padding: 6px; border-bottom: 1px solid #eee; text-align: right;">₹${it.unit_price_snapshot}</td>
-          <td style="padding: 6px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">₹${it.total}</td>
-        </tr>
-      `).join('');
-
-      return `
-        <div class="order-page" style="${orderIdx < selectedOrdersList.length - 1 ? 'page-break-after: always;' : ''}">
-          <div class="header">
-            <h1>🌿 MR. VIVASAYI Mart</h1>
-            <p>Good Food. Good Life. | Customer Order Bill & Dispatch Label</p>
-            <p style="margin: 3px 0 0; font-size: 11px; color: #047857;">📍 ${getFormattedStoreAddress()} | Ph: ${getFormattedStorePhone()}</p>
-          </div>
-          <div class="meta-grid">
-            <div class="meta-box">
-              <h4>Order Metadata</h4>
-              <p><strong>Order ID:</strong> ${order.order_number}</p>
-              <p><strong>Source:</strong> ${order.source}</p>
-              <p><strong>Date:</strong> ${new Date(order.created_at).toLocaleString()}</p>
-              <p><strong>Status:</strong> ${order.status}</p>
-            </div>
-            <div class="meta-box">
-              <h4>Customer & Delivery Address</h4>
-              <p><strong>Customer Name:</strong> ${order.customer_name_snapshot || 'Walk-in Customer'}</p>
-              <p><strong>Phone:</strong> ${order.customer_phone_snapshot || '—'}</p>
-              <p><strong>Delivery Area:</strong> ${order.delivery_area || 'Cumbum Store'}</p>
-              <p><strong>Delivery Address:</strong> ${order.delivery_address || 'Over the counter / Store Pickup'}</p>
-            </div>
-          </div>
-          ${order.payment_status === 'PAID' && order.payment_method !== 'CASH'
-            ? `<div style="background: #dcfce7; border: 2px solid #16a34a; color: #14532d; padding: 8px 12px; border-radius: 8px; font-weight: 900; text-align: center; margin-bottom: 12px; font-size: 13px;">✓ PREPAID ORDER (Amount Paid: ₹${order.total})</div>`
-            : `<div style="background: #fef3c7; border: 2px solid #d97706; color: #78350f; padding: 8px 12px; border-radius: 8px; font-weight: 900; text-align: center; margin-bottom: 12px; font-size: 13px;">⚠️ COD ORDER (Collect Cash Amount: ₹${order.total})</div>`
-          }
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 30px;">#</th>
-                <th>Product Description</th>
-                <th style="text-align: center;">Qty</th>
-                <th style="text-align: right;">Unit Price</th>
-                <th style="text-align: right;">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${itemsHtml}
-            </tbody>
-          </table>
-          <div class="totals">
-            <div class="totals-row">
-              <span>Subtotal:</span>
-              <span>₹${order.subtotal}</span>
-            </div>
-            <div class="totals-row">
-              <span>Delivery Fee:</span>
-              <span>+₹${order.delivery_fee}</span>
-            </div>
-            <div class="totals-row">
-              <span>Payment Mode:</span>
-              <span>${order.payment_method} (${order.payment_status})</span>
-            </div>
-            <div class="totals-row grand-total">
-              <span>Total Amount Paid:</span>
-              <span>₹${order.total}</span>
-            </div>
-          </div>
-          <div class="footer">
-            <p>Order #${order.order_number} | Thank you for shopping with MR. VIVASAYI Mart! (+91 9789325262)</p>
-          </div>
-        </div>
-      `;
-    }).join('<hr style="margin: 30px 0; border: none; border-top: 2px dashed #ccc;" />');
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>MR. VIVASAYI Mart Batch Print - ${selectedOrdersList.length} Orders</title>
-          <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; color: #064e3b; margin: 0; }
-            .header { text-align: center; border-bottom: 2px solid #064e3b; padding-bottom: 10px; margin-bottom: 15px; }
-            .header h1 { margin: 0; color: #064e3b; font-size: 22px; font-weight: 800; }
-            .header p { margin: 4px 0 0; color: #666; font-size: 11px; }
-            .meta-grid { display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 12px; gap: 12px; }
-            .meta-box { flex: 1; background: #f0fdf4; padding: 10px 14px; border-radius: 10px; border: 1px solid #bbf7d0; }
-            .meta-box h4 { margin: 0 0 6px; color: #064e3b; font-size: 11px; text-transform: uppercase; font-weight: 800; }
-            .meta-box p { margin: 2px 0; color: #1e293b; font-size: 11px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 11px; }
-            th { background: #064e3b; color: white; padding: 8px; text-align: left; font-size: 10px; text-transform: uppercase; }
-            .totals { margin-left: auto; width: 300px; background: #064e3b; color: white; padding: 12px; border-radius: 10px; font-size: 11px; }
-            .totals-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-            .grand-total { border-top: 1px solid #047857; padding-top: 6px; font-size: 14px; font-weight: 900; color: #fde68a; }
-            .footer { text-align: center; margin-top: 20px; font-size: 10px; color: #64748b; }
-            @media print {
-              .order-page { page-break-after: always; }
-            }
-          </style>
-        </head>
-        <body>
-          ${ordersPagesHtml}
-        </body>
-      </html>
-    `);
-
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 400);
+    printAmazonFlipkartInvoices(selectedOrdersList);
   };
 
   // Quick Status & Stock Adjustment Handler
@@ -2038,6 +1602,60 @@ MR. VIVASAYI Mart (+91 9789325262)`;
       message: `Order #${order.order_number} marked as ${STATUS_LABEL[newStatus] || newStatus}.${newPaymentStatus ? ` Payment: ${newPaymentStatus}.` : ''}`,
       type: 'success',
       sourceModule: 'Orders Hub'
+    });
+  };
+
+  // 3D Animated "Are you sure?" Confirmation Popup Modal State
+  const [confirmModalState, setConfirmModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    variant: 'danger' | 'warning' | 'primary';
+    action: () => Promise<void>;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Yes, Confirm',
+    variant: 'primary',
+    action: async () => {}
+  });
+
+  const promptQuickStatusChange = (order: Order, newStatus: OrderStatus, newPaymentStatus?: any) => {
+    if (order.status === newStatus) return;
+    setConfirmModalState({
+      isOpen: true,
+      title: 'Update Order Status?',
+      message: `Are you sure you want to change order #${order.order_number} to "${STATUS_LABEL[newStatus] || newStatus}"? Stock inventory will sync automatically.`,
+      confirmText: `Yes, Set to ${STATUS_LABEL[newStatus] || newStatus}`,
+      variant: newStatus === 'CANCELLED' || newStatus === 'RETURNED' ? 'danger' : 'primary',
+      action: async () => {
+        await handleQuickStatusChange(order, newStatus, newPaymentStatus);
+      }
+    });
+  };
+
+  const promptDeleteSingleOrder = (order: Order) => {
+    setConfirmModalState({
+      isOpen: true,
+      title: 'Delete Order Record?',
+      message: `Are you sure you want to permanently delete order #${order.order_number}? This action cannot be reversed.`,
+      confirmText: 'Yes, Delete Order',
+      variant: 'danger',
+      action: async () => {
+        try {
+          if (['NEW', 'CONFIRMED', 'PACKING', 'READY', 'DISPATCHED'].includes(order.status)) {
+            await syncOrderStockChange(order, { ...order, status: 'CANCELLED' });
+          }
+          await deleteRecordFromDB('orders', order.id);
+          setOrders(prev => prev.filter(o => o.id !== order.id));
+          toast.success(`Order #${order.order_number} deleted successfully.`);
+        } catch (e) {
+          console.error(e);
+          toast.error('Failed to delete order');
+        }
+      }
     });
   };
 
@@ -2985,54 +2603,66 @@ MR. VIVASAYI Mart (+91 9789325262)`;
                       </td>
 
                       <td className="p-4 font-mono font-black text-emerald-950 text-xs">
-                        <button
-                          type="button"
-                          onClick={() => setViewOrder(order)}
+                        <Link
+                          to={`/admin/orders/${order.id}`}
                           className="font-mono font-black text-emerald-800 dark:text-amber-400 hover:text-emerald-950 dark:hover:text-amber-200 hover:underline flex items-center gap-1 cursor-pointer group text-left"
-                          title="Click to view full order details & courier tracking"
+                          title="Click to view full order details on dedicated page"
                         >
                           <span>#{order.order_number}</span>
                           <ExternalLink className="w-3 h-3 text-emerald-600 dark:text-amber-300 opacity-60 group-hover:opacity-100 shrink-0" />
-                        </button>
+                        </Link>
                       </td>
 
                       <td className="p-4">{sourceBadge(order.source)}</td>
 
                       <td className="p-4">
-                        <div className="font-extrabold text-emerald-950">{order.customer_name_snapshot || 'Walk-in Customer'}</div>
-                        <div className="text-[10px] text-gray-500 font-mono flex items-center gap-1.5 mt-0.5 flex-wrap">
-                          <span className="bg-emerald-100/80 text-emerald-900 px-1.5 py-0.5 rounded font-extrabold text-[9px] border border-emerald-200">
-                            {order.customer_id || 'CUST-WALKIN'}
-                          </span>
-                          <span>{order.customer_phone_snapshot || '9876543210'}</span>
-                          {order.whatsapp_message_status === 'SENT' && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
-                              ✓ WA Sent
+                        <Link
+                          to={order.customer_id ? `/admin/customers/${order.customer_id}` : `/admin/customers/${order.customer_phone_snapshot || ''}`}
+                          className="group block cursor-pointer"
+                          title="Click to view Customer Profile & Order History"
+                        >
+                          <div className="font-extrabold text-emerald-950 dark:text-emerald-100 group-hover:text-emerald-700 dark:group-hover:text-amber-400 group-hover:underline flex items-center gap-1">
+                            <span>{order.customer_name_snapshot || 'Walk-in Customer'}</span>
+                            <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 text-emerald-600 transition shrink-0" />
+                          </div>
+                          <div className="text-[10px] text-gray-500 font-mono flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <span className="bg-emerald-100/80 text-emerald-900 px-1.5 py-0.5 rounded font-extrabold text-[9px] border border-emerald-200">
+                              {order.customer_id || 'CUST-WALKIN'}
                             </span>
-                          )}
-                          {order.whatsapp_message_status === 'FAILED' && (
-                            <button
-                              onClick={() => handleRetryWhatsAppMessage(order)}
-                              className="px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 inline-flex items-center gap-1 cursor-pointer transition shadow-xs"
-                              title="WhatsApp Message failed or popup was blocked. Click to retry dispatching WhatsApp bill."
-                            >
-                              ⚠️ WA Failed (Retry)
-                            </button>
-                          )}
-                          {order.whatsapp_message_status === 'PENDING' && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-50 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
-                              ⏳ WA Pending
-                            </span>
-                          )}
-                        </div>
+                            <span>{order.customer_phone_snapshot || '9876543210'}</span>
+                            {order.whatsapp_message_status === 'SENT' && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
+                                ✓ WA Sent
+                              </span>
+                            )}
+                            {order.whatsapp_message_status === 'FAILED' && (
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleRetryWhatsAppMessage(order);
+                                }}
+                                className="px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200 inline-flex items-center gap-1 cursor-pointer transition shadow-xs"
+                                title="WhatsApp Message failed or popup was blocked. Click to retry dispatching WhatsApp bill."
+                              >
+                                ⚠️ WA Failed (Retry)
+                              </button>
+                            )}
+                            {order.whatsapp_message_status === 'PENDING' && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-50 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
+                                ⏳ WA Pending
+                              </span>
+                            )}
+                          </div>
+                        </Link>
                       </td>
 
                       <td className="p-4">
                         <select
                           value={order.status}
-                          onChange={(e) => handleQuickStatusChange(order, e.target.value as OrderStatus)}
+                          onChange={(e) => promptQuickStatusChange(order, e.target.value as OrderStatus)}
                           className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold border cursor-pointer outline-none transition shadow-2xs ${statusBadgeClass(order.status)}`}
-                          title="Click to update status. Stock auto-deducts on Confirmation and auto-refills on Cancel or Return."
+                          title="Click to update status (asks confirmation)"
                         >
                           {ALL_STATUSES.map(s => (
                             <option key={s} value={s} className="bg-white text-gray-900 font-bold">
@@ -3103,43 +2733,43 @@ MR. VIVASAYI Mart (+91 9789325262)`;
                             <MessageSquare className="w-4 h-4" />
                           </button>
 
-                          <button
-                            onClick={() => setViewOrder(order)}
-                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg border border-emerald-200"
-                            title="View Full Order Summary"
+                          <Link
+                            to={`/admin/orders/${order.id}`}
+                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg border border-emerald-200 transition"
+                            title="Open Dedicated Order Details Page"
                           >
                             <Eye className="w-4 h-4" />
-                          </button>
+                          </Link>
 
                           <button
                             type="button"
-                            onClick={() => handlePrintSingleCourierLabel(order)}
+                            onClick={() => printAmazonFlipkartCourierLabels(order)}
                             className="p-1.5 bg-amber-100 hover:bg-amber-200 text-amber-950 rounded-lg border border-amber-300 transition"
-                            title="Print Courier Shipping Address Label"
+                            title="Print Amazon / Flipkart Courier Shipping Address Label"
                           >
-                            <Truck className="w-4 h-4 text-emerald-800" />
+                            <Truck className="w-4 h-4 text-stone-950" />
                           </button>
 
                           <button
-                            onClick={() => handlePrintSingleOrder(order)}
-                            className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg border border-amber-200"
-                            title="Print Single Order Bill & Delivery Address Label"
+                            onClick={() => printAmazonFlipkartInvoices(order)}
+                            className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg border border-amber-200 transition"
+                            title="Print Amazon / Flipkart Tax Invoice"
                           >
                             <Printer className="w-4 h-4" />
                           </button>
 
                           <button
                             onClick={() => setEditingOrderDetails(order)}
-                            className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-lg border border-blue-200"
+                            className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 rounded-lg border border-blue-200 transition"
                             title="Edit Order Details & Status"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
 
                           <button
-                            onClick={() => setOrderToDelete(order)}
-                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200"
-                            title="Delete Order"
+                            onClick={() => promptDeleteSingleOrder(order)}
+                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg border border-rose-200 transition"
+                            title="Delete Order (asks confirmation)"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -3976,6 +3606,7 @@ MR. VIVASAYI Mart (+91 9789325262)`;
               <option value="CONFIRMED" className="bg-gray-800">Confirmed</option>
               <option value="PACKING" className="bg-gray-800">Packing</option>
               <option value="READY" className="bg-gray-800">Ready</option>
+              <option value="DISPATCHED" className="bg-gray-800">Dispatched</option>
               <option value="OUT_FOR_DELIVERY" className="bg-gray-800">Out for Delivery</option>
               <option value="DELIVERED" className="bg-gray-800">Delivered</option>
               <option value="CANCELLED" className="bg-gray-800">Cancelled</option>
@@ -3996,6 +3627,59 @@ MR. VIVASAYI Mart (+91 9789325262)`;
           >
             Clear
           </button>
+        </div>
+      )}
+
+      {/* 3D Animated "Are you sure?" Confirmation Popup Modal */}
+      {confirmModalState.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-stone-200 dark:border-stone-800 space-y-5 animate-scaleUp">
+            <div className="flex items-center gap-3">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                confirmModalState.variant === 'danger'
+                  ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400'
+                  : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+              }`}>
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-stone-900 dark:text-white">
+                  {confirmModalState.title}
+                </h3>
+                <p className="text-xs text-stone-500 font-bold uppercase tracking-wider">
+                  Confirmation Required
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-600 dark:text-stone-300 leading-relaxed font-medium">
+              {confirmModalState.message}
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModalState(prev => ({ ...prev, isOpen: false }))}
+                className="px-5 py-2.5 rounded-2xl border border-stone-200 dark:border-stone-700 font-bold text-xs text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition"
+              >
+                No, Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+                  await confirmModalState.action();
+                }}
+                className={`px-5 py-2.5 rounded-2xl font-black text-xs text-white shadow-md transition flex items-center gap-1.5 ${
+                  confirmModalState.variant === 'danger'
+                    ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/30'
+                    : 'bg-emerald-700 hover:bg-emerald-800 shadow-emerald-700/30'
+                }`}
+              >
+                <Check className="w-4 h-4" /> {confirmModalState.confirmText}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -31,6 +31,7 @@ const AdminLoginPage = lazy(() => import('./pages/admin/AdminLoginPage'));
 const DashboardPage = lazy(() => import('./pages/admin/DashboardPage'));
 const POSPage = lazy(() => import('./pages/admin/POSPage'));
 const OrdersPage = lazy(() => import('./pages/admin/OrdersPage'));
+const AdminOrderDetailPage = lazy(() => import('./pages/admin/AdminOrderDetailPage'));
 const ProductsManagerPage = lazy(() => import('./pages/admin/ProductsManagerPage'));
 const ProductEditorPage = lazy(() => import('./pages/admin/ProductEditorPage'));
 const InventoryPage = lazy(() => import('./pages/admin/InventoryPage'));
@@ -330,6 +331,14 @@ function AppRoutes() {
             element={
               <RequirePermission minRole="STAFF" module="orders">
                 <OrdersPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="orders/:id"
+            element={
+              <RequirePermission minRole="STAFF" module="orders">
+                <AdminOrderDetailPage />
               </RequirePermission>
             }
           />

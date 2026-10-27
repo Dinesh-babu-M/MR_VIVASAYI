@@ -106,10 +106,19 @@ export function CustomerDetailPage() {
     loadData();
   }, []);
 
-  // Find targeted customer by id or customer_id
+  // Find targeted customer by id, customer_id, or phone number
   const customer: Customer = useMemo(() => {
-    if (!customers || customers.length === 0) return {} as Customer;
-    const found = customers.find(c => c.id === customerId || c.customer_id === customerId);
+    if (!customers || customers.length === 0 || !customerId) return {} as Customer;
+    const cleanParam = customerId.trim();
+    const cleanPhone = cleanParam.replace(/\D/g, '');
+    const found = customers.find(c => 
+      c.id === cleanParam || 
+      c.customer_id === cleanParam ||
+      (cleanPhone.length >= 7 && (
+        (c.phone && c.phone.replace(/\D/g, '').includes(cleanPhone)) ||
+        (c.whatsapp_number && c.whatsapp_number.replace(/\D/g, '').includes(cleanPhone))
+      ))
+    );
     return found || ({} as Customer);
   }, [customers, customerId]);
 

@@ -34,6 +34,7 @@ export type OrderStatus =
   | 'CONFIRMED'
   | 'PACKING'
   | 'READY'
+  | 'DISPATCHED'
   | 'OUT_FOR_DELIVERY'
   | 'DELIVERED'
   | 'CANCELLED'
