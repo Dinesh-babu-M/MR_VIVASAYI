@@ -1106,4 +1106,56 @@
   animation: sheenShimmer 4s ease-in-out infinite;
 }
 
+/* ============================================================
+   TABLET VIEW RESPONSIVE STYLING (768px - 1024px)
+   Compact font scaling and cell spacing for tablet displays
+   ============================================================ */
+@media (min-width: 768px) and (max-width: 1024px) {
+  /* Compact table font scaling and cell padding */
+  table th,
+  table td {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+    font-size: 0.75rem !important; /* 12px */
+  }
+
+  table th {
+    font-size: 0.7rem !important;
+    letter-spacing: 0.025em !important;
+  }
+
+  /* Table action buttons in tablet view */
+  table td .flex[class*="gap-"] {
+    gap: 0.25rem !important;
+  }
+
+  table td button {
+    padding: 0.25rem 0.375rem !important;
+  }
+
+  table td button svg {
+    width: 0.875rem !important; /* 14px */
+    height: 0.875rem !important;
+  }
+
+  /* Ensure table container has smooth scrolling and avoids overflow breaks */
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  /* Compact headings and text scaling */
+  .tablet-compact-text {
+    font-size: 0.75rem !important;
+  }
+
+  .tablet-compact-badge {
+    padding: 0.125rem 0.375rem !important;
+    font-size: 0.65rem !important;
+  }
+}
+
+
 

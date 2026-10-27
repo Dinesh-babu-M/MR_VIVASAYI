@@ -58,6 +58,7 @@ import { RefreshSpinnerModal } from '../../components/common/RefreshSpinnerModal
 import { AutoRefreshDropdown } from '../../components/common/AutoRefreshDropdown';
 import { getJSONStore, setJSONStore, syncOrderStockChange } from '../../lib/dbManager';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { COURIER_PARTNERS, getCourierPartner } from '../../lib/deliveryRulesEngine';
 import toast from 'react-hot-toast';
 
 // ─── Status helpers ────────────────────────────────────────────────────────────
@@ -179,6 +180,150 @@ const DetailRow: React.FC<{ label: string; children: React.ReactNode }> = ({ lab
   </div>
 );
 
+// ─── Courier Parcel Shipping Label Generator ─────────────────────────────────
+
+export const generateCourierLabelHtml = (order: Order, courierPartnerName?: string): string => {
+  const partner = courierPartnerName || order.courier_partner || 'ST Courier';
+  const tracking = order.tracking_number || 'PENDING DISPATCH';
+  const totalWeight = order.weight_grams ? (order.weight_grams >= 1000 ? `${(order.weight_grams/1000).toFixed(2)} KG` : `${order.weight_grams} G`) : '1.0 KG';
+  const isCOD = order.payment_status !== 'PAID' && order.payment_method === 'CASH';
+  const pincodeMatch = (order.delivery_address || '').match(/\b\d{6}\b/);
+  const destinationPin = pincodeMatch ? pincodeMatch[0] : '';
+
+  return `
+    <div style="border: 3px solid #064e3b; border-radius: 12px; padding: 16px; max-width: 550px; margin: 0 auto 20px; font-family: 'Segoe UI', Arial, sans-serif; background: #fff; color: #111; box-sizing: border-box;">
+      <!-- Label Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #064e3b; padding-bottom: 8px; margin-bottom: 10px;">
+        <div>
+          <div style="font-size: 16px; font-weight: 900; color: #064e3b; text-transform: uppercase;">🌿 MR. VIVASAYI ORGANIC STORE</div>
+          <div style="font-size: 10px; color: #555;">Farm Direct Agro Logistics & Courier Parcel</div>
+        </div>
+        <div style="text-align: right;">
+          <div style="background: #064e3b; color: #fde68a; font-size: 11px; font-weight: 900; padding: 4px 10px; border-radius: 6px; text-transform: uppercase;">
+            ${partner}
+          </div>
+          <div style="font-size: 10px; font-family: monospace; font-weight: bold; margin-top: 3px;">AWB: ${tracking}</div>
+        </div>
+      </div>
+
+      <!-- Payment / Order Status Banner -->
+      <div style="display: flex; justify-content: space-between; align-items: center; background: ${isCOD ? '#fef3c7' : '#dcfce7'}; border: 2px solid ${isCOD ? '#d97706' : '#16a34a'}; border-radius: 8px; padding: 6px 12px; margin-bottom: 12px; font-size: 11px; font-weight: 900;">
+        <span style="color: ${isCOD ? '#92400e' : '#166534'};">
+          ${isCOD ? `⚠️ CASH ON DELIVERY (COD) — COLLECT ₹${order.total}` : `✓ PREPAID PARCEL — DO NOT COLLECT CASH`}
+        </span>
+        <span style="font-family: monospace; font-size: 12px; color: #111;">REF: #${order.order_number}</span>
+      </div>
+
+      <!-- SHIP TO (Recipient Destination) -->
+      <div style="border: 2px solid #111; border-radius: 10px; padding: 12px; margin-bottom: 12px; background: #fafafa;">
+        <div style="font-size: 10px; font-weight: 900; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px;">DELIVER TO / RECIPIENT:</div>
+        <div style="font-size: 17px; font-weight: 900; color: #000; text-transform: uppercase; margin-bottom: 5px;">
+          ${order.customer_name_snapshot || 'Valued Customer'}
+        </div>
+        <div style="font-size: 12px; color: #222; line-height: 1.4; margin-bottom: 8px;">
+          ${order.delivery_address || 'Customer Delivery Address'}
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px dashed #ccc; padding-top: 8px;">
+          <div>
+            <div style="font-size: 10px; color: #555;">Contact Phone:</div>
+            <div style="font-size: 14px; font-weight: 900; color: #000; font-family: monospace;">
+              📞 ${order.customer_phone_snapshot || 'N/A'}
+            </div>
+          </div>
+          ${destinationPin ? `
+          <div style="text-align: right;">
+            <div style="font-size: 9px; font-weight: 800; color: #064e3b; text-transform: uppercase;">PINCODE:</div>
+            <div style="font-size: 20px; font-weight: 900; font-family: monospace; color: #064e3b; background: #e6f4ea; padding: 2px 8px; border-radius: 6px; border: 1.5px solid #064e3b;">
+              ${destinationPin}
+            </div>
+          </div>` : ''}
+        </div>
+      </div>
+
+      <!-- FROM (Shipper / Return Address) -->
+      <div style="display: flex; justify-content: space-between; font-size: 10px; border: 1px solid #ddd; border-radius: 8px; padding: 8px 10px; background: #fff; margin-bottom: 10px;">
+        <div>
+          <div style="font-weight: 900; color: #064e3b; text-transform: uppercase;">SHIPPER (FROM / RETURN ADDRESS):</div>
+          <div style="font-weight: bold; color: #222;">MR. VIVASAYI ORGANIC FOODS MART</div>
+          <div style="color: #444;">Bypass Road, Cumbum, Theni District, Tamil Nadu - 625516</div>
+          <div style="color: #444; font-weight: bold;">Store Support: +91 97893 25262 / +91 98765 43210</div>
+        </div>
+        <div style="text-align: right; border-left: 1px solid #eee; padding-left: 10px; min-width: 100px;">
+          <div style="font-size: 9px; color: #666;">Weight:</div>
+          <div style="font-size: 13px; font-weight: 900; color: #064e3b; font-family: monospace;">${totalWeight}</div>
+          <div style="font-size: 9px; color: #666; margin-top: 3px;">Content:</div>
+          <div style="font-weight: bold; font-size: 10px;">Farm Produce</div>
+        </div>
+      </div>
+
+      <!-- Barcode simulation -->
+      <div style="text-align: center; font-family: monospace; font-size: 13px; letter-spacing: 3px; padding-top: 4px; border-top: 1px dashed #bbb;">
+        ||| | ||||| || |||||| | |||| ||| |||||||
+        <div style="font-size: 9px; letter-spacing: 1px; color: #555; margin-top: 2px;">*${order.tracking_number || order.order_number}*</div>
+      </div>
+    </div>
+  `;
+};
+
+export const handlePrintSingleCourierLabel = (order: Order) => {
+  const printWindow = window.open('', '_blank', 'width=700,height=800');
+  if (!printWindow) return;
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>MR. VIVASAYI Courier Label - ${order.order_number}</title>
+        <style>
+          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; margin: 0; background: #fff; }
+          @media print {
+            body { padding: 0; }
+            @page { margin: 8mm; }
+          }
+        </style>
+      </head>
+      <body>
+        ${generateCourierLabelHtml(order)}
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => printWindow.print(), 350);
+};
+
+export const handlePrintBulkCourierLabels = (ordersList: Order[]) => {
+  const printWindow = window.open('', '_blank', 'width=750,height=900');
+  if (!printWindow) return;
+
+  const pagesHtml = ordersList.map((order, idx) => `
+    <div style="${idx < ordersList.length - 1 ? 'page-break-after: always;' : ''}">
+      ${generateCourierLabelHtml(order)}
+    </div>
+  `).join('');
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>MR. VIVASAYI Mart Bulk Courier Labels (${ordersList.length} Parcels)</title>
+        <style>
+          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; margin: 0; background: #fff; }
+          @media print {
+            body { padding: 0; }
+            @page { margin: 8mm; }
+          }
+        </style>
+      </head>
+      <body>
+        ${pagesHtml}
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => printWindow.print(), 400);
+};
+
 // ─── Order Detail Modal ─────────────────────────────────────────────────────────
 
 interface DetailModalProps {
@@ -186,9 +331,42 @@ interface DetailModalProps {
   onClose: () => void;
   onEditDetails: () => void;
   onQuickStatusChange?: (order: Order, newStatus: OrderStatus, newPaymentStatus?: any) => void;
+  onOrderUpdated?: (updated: Order) => void;
+  onDeleteOrder?: (order: Order) => void;
 }
 
-const OrderDetailModal: React.FC<DetailModalProps> = ({ order, onClose, onEditDetails, onQuickStatusChange }) => {
+const OrderDetailModal: React.FC<DetailModalProps> = ({ order, onClose, onEditDetails, onQuickStatusChange, onOrderUpdated, onDeleteOrder }) => {
+  const [courierPartner, setCourierPartner] = useState(order.courier_partner || 'ST Courier');
+  const [trackingId, setTrackingId] = useState(order.tracking_number || '');
+  const [isSavingCourier, setIsSavingCourier] = useState(false);
+
+  const handleSaveCourierTracking = async () => {
+    setIsSavingCourier(true);
+    try {
+      const partnerInfo = getCourierPartner(courierPartner);
+      const url = trackingId.trim() ? partnerInfo.generateTrackingUrl(trackingId.trim()) : '';
+      const updatedOrder: Order = {
+        ...order,
+        courier_partner: courierPartner,
+        tracking_number: trackingId.trim(),
+        tracking_url: url,
+        dispatched_at: order.dispatched_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const existingOrders = await getJSONStore<Order>('orders');
+      const next = existingOrders.map(o => o.id === order.id ? updatedOrder : o);
+      await setJSONStore('orders', next);
+      onOrderUpdated?.(updatedOrder);
+      toast.success(`Courier details updated for #${order.order_number}!`);
+    } catch (err) {
+      console.error('Error saving courier tracking:', err);
+      toast.error('Failed to save courier details');
+    } finally {
+      setIsSavingCourier(false);
+    }
+  };
+
   const handlePrintBill = () => {
     const printWindow = window.open('', '_blank', 'width=800,height=900');
     if (!printWindow) return;
@@ -341,6 +519,17 @@ const OrderDetailModal: React.FC<DetailModalProps> = ({ order, onClose, onEditDe
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* PRINT COURIER LABEL BUTTON */}
+            <button
+              type="button"
+              onClick={() => handlePrintSingleCourierLabel(order)}
+              className="px-3 py-2 bg-amber-400 hover:bg-amber-500 text-emerald-950 text-xs font-black rounded-xl flex items-center gap-1.5 shadow transition-all cursor-pointer"
+              title="Print Courier Shipping Parcel Label"
+            >
+              <Truck className="w-3.5 h-3.5 text-emerald-950" />
+              <span>Print Label</span>
+            </button>
+
             {/* PRINT BILL BUTTON */}
             <button
               type="button"
@@ -381,6 +570,105 @@ const OrderDetailModal: React.FC<DetailModalProps> = ({ order, onClose, onEditDe
 
         {/* Body */}
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
+
+          {/* Courier Partner & Waybill Tracking Section */}
+          <div className="bg-emerald-50/90 dark:bg-emerald-900/40 rounded-2xl p-4 border border-emerald-200 dark:border-emerald-700 shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200/60 dark:border-emerald-800 pb-2.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-800 text-amber-300 flex items-center justify-center shrink-0 shadow-sm">
+                  <Truck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-emerald-950 dark:text-emerald-100 uppercase tracking-wide">
+                    Courier Partner & Waybill Tracking
+                  </h4>
+                  <p className="text-[11px] text-gray-600 dark:text-emerald-300">
+                    Assign official courier partner and docket number to reflect on customer live tracking.
+                  </p>
+                </div>
+              </div>
+              <div className="text-left sm:text-right">
+                <span className="text-[10px] font-bold text-gray-500 block">Estimated Weight</span>
+                <span className="text-xs font-mono font-black text-emerald-800 dark:text-amber-300">
+                  {order.weight_grams ? (order.weight_grams >= 1000 ? `${(order.weight_grams/1000).toFixed(2)} kg` : `${order.weight_grams} g`) : '1.0 kg'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="block text-[11px] font-bold text-gray-700 dark:text-emerald-200 mb-1">
+                  Courier Partner
+                </label>
+                <select
+                  value={courierPartner}
+                  onChange={(e) => setCourierPartner(e.target.value)}
+                  className="w-full p-2 bg-white dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-bold text-emerald-950 dark:text-emerald-100 shadow-2xs"
+                >
+                  {COURIER_PARTNERS.map(cp => (
+                    <option key={cp.id} value={cp.name}>{cp.name} ({cp.badge})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-700 dark:text-emerald-200 mb-1">
+                  Docket / Waybill Tracking Number
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. ST123456789IN"
+                    value={trackingId}
+                    onChange={(e) => setTrackingId(e.target.value)}
+                    className="flex-1 p-2 bg-white dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-mono font-bold text-emerald-950 dark:text-emerald-100 shadow-2xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveCourierTracking}
+                    disabled={isSavingCourier}
+                    className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow transition shrink-0 cursor-pointer"
+                  >
+                    {isSavingCourier ? 'Saving...' : 'Save Courier'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-emerald-200/60 dark:border-emerald-800">
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/track-order?orderId=${order.order_number}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-xs font-bold border border-emerald-300 transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>View on Website Live Tracker 🌐</span>
+                </a>
+
+                {order.tracking_number && (
+                  <a
+                    href={getCourierPartner(courierPartner).generateTrackingUrl(order.tracking_number)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-stone-800 text-stone-800 dark:text-stone-200 hover:bg-stone-100 text-xs font-bold border border-stone-300 transition"
+                  >
+                    <span>Courier Portal 🚚</span>
+                  </a>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handlePrintSingleCourierLabel(order)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-500 text-emerald-950 text-xs font-black shadow-xs transition"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Parcel Sticker Label 🏷️</span>
+              </button>
+            </div>
+          </div>
 
           {/* Quick Stock & Lifecycle Actions Banner */}
           <div className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-950 p-4 rounded-2xl text-white space-y-2 border border-emerald-700/60 shadow">
@@ -2697,7 +2985,15 @@ MR. VIVASAYI Mart (+91 9789325262)`;
                       </td>
 
                       <td className="p-4 font-mono font-black text-emerald-950 text-xs">
-                        {order.order_number}
+                        <button
+                          type="button"
+                          onClick={() => setViewOrder(order)}
+                          className="font-mono font-black text-emerald-800 dark:text-amber-400 hover:text-emerald-950 dark:hover:text-amber-200 hover:underline flex items-center gap-1 cursor-pointer group text-left"
+                          title="Click to view full order details & courier tracking"
+                        >
+                          <span>#{order.order_number}</span>
+                          <ExternalLink className="w-3 h-3 text-emerald-600 dark:text-amber-300 opacity-60 group-hover:opacity-100 shrink-0" />
+                        </button>
                       </td>
 
                       <td className="p-4">{sourceBadge(order.source)}</td>
@@ -2816,6 +3112,15 @@ MR. VIVASAYI Mart (+91 9789325262)`;
                           </button>
 
                           <button
+                            type="button"
+                            onClick={() => handlePrintSingleCourierLabel(order)}
+                            className="p-1.5 bg-amber-100 hover:bg-amber-200 text-amber-950 rounded-lg border border-amber-300 transition"
+                            title="Print Courier Shipping Address Label"
+                          >
+                            <Truck className="w-4 h-4 text-emerald-800" />
+                          </button>
+
+                          <button
                             onClick={() => handlePrintSingleOrder(order)}
                             className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg border border-amber-200"
                             title="Print Single Order Bill & Delivery Address Label"
@@ -2911,6 +3216,14 @@ MR. VIVASAYI Mart (+91 9789325262)`;
             setViewOrder(null);
           }}
           onQuickStatusChange={handleQuickStatusChange}
+          onOrderUpdated={(updated) => {
+            setViewOrder(updated);
+            setOrders(prev => prev.map(o => o.id === updated.id ? updated : o));
+          }}
+          onDeleteOrder={(toDel) => {
+            setViewOrder(null);
+            setOrderToDelete(toDel);
+          }}
         />
       )}
 
@@ -3528,45 +3841,70 @@ MR. VIVASAYI Mart (+91 9789325262)`;
       )}
 
       {/* DELETE CONFIRMATION MODAL */}
+      {/* 3D Animated "Are You Sure?" Delete Order Confirmation Modal */}
       {orderToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white dark:bg-emerald-950 max-w-md w-full p-6 rounded-3xl shadow-2xl border border-emerald-100 dark:border-emerald-800 space-y-4">
-            <div className="flex items-center gap-3 text-rose-600">
-              <div className="p-3 bg-rose-100 dark:bg-rose-900/50 rounded-2xl">
-                <Trash2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold font-serif text-gray-900 dark:text-emerald-100">Delete Order</h3>
-                <p className="text-xs text-gray-500 dark:text-emerald-300">Action cannot be undone</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-emerald-950 max-w-md w-full p-6 sm:p-7 rounded-3xl shadow-2xl border border-rose-200 dark:border-rose-900/60 space-y-5 animate-scaleUp">
+            
+            {/* 3D-styled animated alert icon */}
+            <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+              <div className="absolute inset-0 rounded-2xl bg-rose-500/20 animate-ping" />
+              <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 text-white flex items-center justify-center shadow-xl border-2 border-rose-300 shadow-rose-900/30 transform hover:rotate-6 transition-transform">
+                <Trash2 className="w-7 h-7 text-white" />
               </div>
             </div>
 
-            <div className="p-4 bg-rose-50/50 dark:bg-rose-900/20 rounded-2xl border border-rose-100 dark:border-rose-900 text-xs text-gray-700 dark:text-emerald-200">
-              Are you sure you want to delete order <strong className="font-mono text-rose-700 dark:text-rose-400">#{orderToDelete.order_number}</strong> ({orderToDelete.customer_name_snapshot || 'Walk-in Customer'} - {formatPrice(orderToDelete.total)})?
+            <div className="text-center space-y-1.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 bg-rose-100 dark:bg-rose-950 px-2.5 py-0.5 rounded-full border border-rose-200">
+                Irreversible Action
+              </span>
+              <h3 className="text-xl font-serif font-black text-gray-900 dark:text-emerald-100">
+                Are you sure you want to delete?
+              </h3>
+              <p className="text-xs text-gray-600 dark:text-emerald-300">
+                This will void the invoice and permanently delete the order record from system database.
+              </p>
+            </div>
+
+            <div className="p-4 bg-rose-50/80 dark:bg-rose-900/30 rounded-2xl border border-rose-200 dark:border-rose-800 text-xs text-gray-700 dark:text-emerald-200 space-y-1">
+              <div className="flex justify-between font-bold">
+                <span>Order Reference:</span>
+                <span className="font-mono text-rose-700 dark:text-rose-300 font-black">#{orderToDelete.order_number}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Customer:</span>
+                <span className="font-bold">{orderToDelete.customer_name_snapshot || 'Walk-in Customer'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Total Amount:</span>
+                <span className="font-black text-rose-700 dark:text-rose-300">{formatPrice(orderToDelete.total)}</span>
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
+                type="button"
                 disabled={isDeletingOrder}
                 onClick={() => setOrderToDelete(null)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-emerald-900 dark:hover:bg-emerald-800 text-gray-700 dark:text-emerald-200 font-bold text-xs rounded-xl transition-all"
+                className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-emerald-900 dark:hover:bg-emerald-800 text-gray-700 dark:text-emerald-200 font-bold text-xs rounded-xl transition-all cursor-pointer"
               >
                 No, Cancel
               </button>
               <button
+                type="button"
                 disabled={isDeletingOrder}
                 onClick={handleDeleteOrderConfirm}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
+                className="flex-1 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-lg hover:shadow-rose-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
               >
                 {isDeletingOrder ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Deleting...</span>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>Deleting Order...</span>
                   </>
                 ) : (
                   <>
                     <Trash2 className="w-4 h-4" />
-                    <span>Yes, Delete Order</span>
+                    <span>Yes, Confirm Delete</span>
                   </>
                 )}
               </button>
@@ -3585,6 +3923,29 @@ MR. VIVASAYI Mart (+91 9789325262)`;
             </span>
           </div>
           <div className="h-4 w-px bg-gray-700 hidden sm:block" />
+          
+          {/* Print Bulk Courier Labels Button */}
+          <button
+            onClick={() => {
+              const selectedOrdersList = orders.filter(o => selectedOrderIds.includes(o.id));
+              handlePrintBulkCourierLabels(selectedOrdersList);
+            }}
+            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-black rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer shadow-md"
+            title="Print Parcel Shipping Address Labels for all selected orders"
+          >
+            <Truck className="w-3.5 h-3.5 text-stone-950" />
+            <span>Print Courier Labels ({selectedOrderIds.length}) 🏷️</span>
+          </button>
+
+          <button
+            onClick={handleBatchPrintSelectedOrders}
+            className="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md"
+            title="Batch Print Invoices for selected orders"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Print Invoices ({selectedOrderIds.length})</span>
+          </button>
+
           <button
             onClick={() => setExportFormatModal({
               isOpen: true,
@@ -3620,14 +3981,6 @@ MR. VIVASAYI Mart (+91 9789325262)`;
               <option value="CANCELLED" className="bg-gray-800">Cancelled</option>
             </select>
           </div>
-
-          <button
-            onClick={handleBatchPrintSelectedOrders}
-            className="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            Print Bills
-          </button>
 
           <button
             onClick={handleBulkDeleteOrders}

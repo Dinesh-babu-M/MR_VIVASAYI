@@ -155,7 +155,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({ product, onClose
                 className="w-full flex items-center justify-center space-x-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-xl shadow transition-all text-sm"
               >
                 <ShoppingBag className="w-4 h-4" />
-                <span>Add to WhatsApp Order List</span>
+                <span>Add to Cart</span>
               </button>
 
               <a

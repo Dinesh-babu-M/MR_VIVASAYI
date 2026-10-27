@@ -23,6 +23,7 @@ const ContactPage = lazy(() => import('./pages/public/ContactPage'));
 const PrivacyPolicyPage = lazy(() => import('./pages/public/PrivacyPolicyPage'));
 const TermsConditionsPage = lazy(() => import('./pages/public/TermsConditionsPage'));
 const ReviewsPublicPage = lazy(() => import('./pages/public/ReviewsPublicPage'));
+const TrackOrderPage = lazy(() => import('./pages/public/TrackOrderPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 // ---- Admin Pages (lazy) ----
@@ -182,6 +183,8 @@ function DynamicPageTitleManager() {
           }
         }
       }).catch(() => {});
+    } else if (path.startsWith('/track-order') || path.startsWith('/track')) {
+      title = 'MR. VIVASAYI - Live Shipment & Order Tracker';
     } else if (path.startsWith('/admin/sample-pos')) {
       title = 'MR. VIVASAYI - Sample POS Counter Simulator';
     } else if (path.startsWith('/admin/sample-invoices') || path.startsWith('/admin/sample-billing')) {
@@ -259,6 +262,8 @@ function AppRoutes() {
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsConditionsPage />} />
+          <Route path="/track-order" element={<TrackOrderPage />} />
+          <Route path="/track" element={<TrackOrderPage />} />
         </Route>
 
         {/* ======= ADMIN LOGIN ======= */}

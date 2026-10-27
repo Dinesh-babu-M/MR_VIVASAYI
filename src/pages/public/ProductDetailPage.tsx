@@ -1057,7 +1057,7 @@ export const ProductDetailPage: React.FC = () => {
             </div>
 
             {/* Main Action CTAs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="w-full">
               <button
                 disabled={isOutOfStock}
                 onClick={() => {
@@ -1066,26 +1066,14 @@ export const ProductDetailPage: React.FC = () => {
                     toast.success(`Updated cart quantity to ${(cartItem?.quantity || 1) + 1}`);
                   } else {
                     addItem(product, buyQuantity);
-                    toast.success(`Added ${buyQuantity} pack(s) to order!`);
+                    toast.success(`Added ${buyQuantity} pack(s) to Cart!`);
                   }
                 }}
-                className="w-full flex items-center justify-center space-x-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-black py-4 px-6 rounded-2xl shadow-lg hover:shadow-xl transition-all text-sm active:scale-95 cursor-pointer"
+                className="w-full flex items-center justify-center space-x-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-black py-4 px-6 rounded-2xl shadow-lg hover:shadow-xl transition-all text-base active:scale-95 cursor-pointer"
               >
                 <ShoppingBag className="w-5 h-5 text-amber-300" />
-                <span>{isInCart ? 'Add Another Pack To Order' : 'Add To WhatsApp Order List'}</span>
+                <span>{isInCart ? 'Add More to Cart' : 'Add to Cart'}</span>
               </button>
-
-              <a
-                href={`https://wa.me/${getWhatsAppOrdersNumber()}?text=${encodeURIComponent(
-                  `Hello MR. VIVASAYI,\nI want to order: *${product.name}*\nPack Size: ${product.pack_size || `1 ${product.unit}`}\nPrice: ${formatPrice(basePrice)}\nQuantity: ${isInCart ? cartItem?.quantity : buyQuantity}\nTotal: ${formatPrice(basePrice * (isInCart ? (cartItem?.quantity || 1) : buyQuantity))}\n\nProduct Link: ${window.location.href}`
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center justify-center space-x-2 bg-emerald-100 dark:bg-emerald-900 hover:bg-emerald-200 dark:hover:bg-emerald-800 text-emerald-950 dark:text-amber-300 font-bold py-4 px-6 rounded-2xl transition-all border border-emerald-300 dark:border-emerald-700 text-sm shadow-xs cursor-pointer"
-              >
-                <MessageSquare className="w-5 h-5 text-emerald-600 dark:text-amber-400" />
-                <span>Direct WhatsApp Chat</span>
-              </a>
             </div>
 
           </div>

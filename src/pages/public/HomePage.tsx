@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { 
   Leaf, ShoppingBag, MessageSquare, ShieldCheck, HeartHandshake, 
   Sparkles, ArrowRight, Star, ChevronRight, CheckCircle2, Truck, RefreshCw, Award,
-  Layers, LayoutGrid
+  Layers, LayoutGrid, Flame
 } from 'lucide-react';
 import { formatPrice } from '../../lib/utils';
 import { useCart } from '../../contexts/CartContext';
@@ -141,15 +141,23 @@ export const HomePage: React.FC = () => {
                     <span>{hero.cta_text || 'Shop Now'}</span>
                   </Link>
 
-                  <a
-                    href={`https://wa.me/${getWhatsAppOrdersNumber()}?text=${encodeURIComponent('Hello MR. VIVASAYI, I want to place an order for traditional foods.')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full sm:w-auto px-7 py-4 bg-emerald-800/80 hover:bg-emerald-700 text-white font-bold text-base rounded-full border border-emerald-600/80 shadow transition-all flex items-center justify-center gap-2"
-                  >
-                    <MessageSquare className="w-5 h-5 text-amber-400" />
-                    <span>Order via WhatsApp</span>
-                  </a>
+                  {specialOfferProducts.length > 0 ? (
+                    <Link
+                      to="/products?category=offers"
+                      className="w-full sm:w-auto px-7 py-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-extrabold text-base rounded-full shadow-lg hover:shadow-amber-500/30 transition-all flex items-center justify-center gap-2 group"
+                    >
+                      <Flame className="w-5 h-5 text-yellow-200 animate-pulse" />
+                      <span>Special Offers ({specialOfferProducts.length})</span>
+                    </Link>
+                  ) : (
+                    <Link
+                      to="/reviews"
+                      className="w-full sm:w-auto px-7 py-4 bg-emerald-800/80 hover:bg-emerald-700 text-white font-bold text-base rounded-full border border-emerald-600/80 shadow transition-all flex items-center justify-center gap-2"
+                    >
+                      <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
+                      <span>Customer Reviews</span>
+                    </Link>
+                  )}
                 </div>
 
                 {/* Guarantees */}

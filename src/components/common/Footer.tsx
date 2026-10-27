@@ -1,11 +1,12 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Leaf, Phone, Mail, MapPin, Clock, Shield, ArrowRight, Heart } from 'lucide-react';
+import { Leaf, Phone, Mail, MapPin, Clock, Shield, ArrowRight, Heart, Truck } from 'lucide-react';
 import Logo from './Logo';
-
+import type { Category, Product } from '../../types';
 import { getJSONStore } from '../../lib/dbManager';
 
 export const Footer: React.FC = () => {
+  const [categories, setCategories] = React.useState<Category[]>([]);
   const [footerData, setFooterData] = React.useState({
     footer_brand_tagline: 'MR. VIVASAYI is dedicated to preserving traditional heritage food values by working directly with farmers, native seed growers, and organic producers across South India. Pure, unadulterated food for healthy families.',
     footer_phone: '+91 98765 43210',
@@ -16,7 +17,18 @@ export const Footer: React.FC = () => {
   });
 
   React.useEffect(() => {
-    getJSONStore<any>('cms_settings').then(cms => {
+    Promise.all([
+      getJSONStore<Category>('categories'),
+      getJSONStore<Product>('products'),
+      getJSONStore<any>('cms_settings')
+    ]).then(([cats, prods, cms]) => {
+      // Find categories that have active products
+      const activeCatIds = new Set((prods || []).filter(p => p.is_visible !== false).map(p => p.category_id));
+      const filtered = (cats || []).filter(c => activeCatIds.has(c.id));
+      // Sort alphabetically by category name
+      const sorted = (filtered.length > 0 ? filtered : cats || []).sort((a, b) => a.name.localeCompare(b.name));
+      setCategories(sorted);
+
       if (cms && cms.length) {
         const parsed = cms[0].headerFooter || cms[0].header_footer;
         if (parsed) {
@@ -31,7 +43,7 @@ export const Footer: React.FC = () => {
           }));
         }
       }
-    }).catch(e => console.error('Failed to load footer CMS state', e));
+    }).catch(e => console.error('Failed to load footer state', e));
   }, []);
 
   return (
@@ -57,40 +69,24 @@ export const Footer: React.FC = () => {
             </div>
           </div>
 
-          {/* Traditional Categories */}
+          {/* Categories */}
           <div>
             <h3 className="text-amber-400 font-bold text-sm tracking-wider uppercase mb-4">
-              Traditional Foods
+              Categories
             </h3>
             <ul className="space-y-2.5 text-sm font-medium">
+              {categories.slice(0, 5).map(cat => (
+                <li key={cat.id}>
+                  <Link to={`/products?category=${cat.id}`} className="text-white hover:text-amber-300 transition-colors flex items-center gap-1.5">
+                    <ArrowRight className="w-3 h-3 text-amber-400 shrink-0" />
+                    <span className="truncate">{cat.name}</span>
+                  </Link>
+                </li>
+              ))}
               <li>
-                <Link to="/products?category=cat-1" className="text-white hover:text-amber-300 transition-colors flex items-center gap-1.5">
-                  <ArrowRight className="w-3 h-3 text-amber-400" /> Heritage Rice & Paddy
-                </Link>
-              </li>
-              <li>
-                <Link to="/products?category=cat-2" className="text-white hover:text-amber-300 transition-colors flex items-center gap-1.5">
-                  <ArrowRight className="w-3 h-3 text-amber-400" /> Native Millets (சிறுதானியங்கள்)
-                </Link>
-              </li>
-              <li>
-                <Link to="/products?category=cat-4" className="text-white hover:text-amber-300 transition-colors flex items-center gap-1.5">
-                  <ArrowRight className="w-3 h-3 text-amber-400" /> Cold-Pressed Chekku Oils
-                </Link>
-              </li>
-              <li>
-                <Link to="/products?category=cat-5" className="text-white hover:text-amber-300 transition-colors flex items-center gap-1.5">
-                  <ArrowRight className="w-3 h-3 text-amber-400" /> Palm Jaggery & Honey
-                </Link>
-              </li>
-              <li>
-                <Link to="/products?category=cat-3" className="text-white hover:text-amber-300 transition-colors flex items-center gap-1.5">
-                  <ArrowRight className="w-3 h-3 text-amber-400" /> Organic Pulses & Dal
-                </Link>
-              </li>
-              <li>
-                <Link to="/products?category=cat-6" className="text-white hover:text-amber-300 transition-colors flex items-center gap-1.5">
-                  <ArrowRight className="w-3 h-3 text-amber-400" /> Traditional Health Mixes
+                <Link to="/products" className="text-amber-300 hover:text-amber-200 font-bold transition-colors flex items-center gap-1.5 pt-1 text-xs">
+                  <span>See More Categories</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               </li>
             </ul>
@@ -106,10 +102,16 @@ export const Footer: React.FC = () => {
                 <Link to="/" className="text-white hover:text-amber-300 transition-colors">Home Page</Link>
               </li>
               <li>
-                <Link to="/products" className="text-white hover:text-amber-300 transition-colors">Shop All Products</Link>
+                <Link to="/products" className="text-white hover:text-amber-300 transition-colors">Products &amp; Produce</Link>
               </li>
               <li>
-                <Link to="/about" className="text-white hover:text-amber-300 transition-colors">Farmer Network & Philosophy</Link>
+                <Link to="/track-order" className="text-white hover:text-amber-300 transition-colors flex items-center gap-1">
+                  <Truck className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Track Order</span>
+                </Link>
+              </li>
+              <li>
+                <Link to="/about" className="text-white hover:text-amber-300 transition-colors">Farmer Network &amp; Philosophy</Link>
               </li>
               <li>
                 <Link to="/contact" className="text-white hover:text-amber-300 transition-colors">Contact & Store Location</Link>

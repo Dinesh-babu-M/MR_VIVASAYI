@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Phone, Mail, MapPin, Clock, MessageSquare, Send, CheckCircle2 } from 'lucide-react';
 import { useActionModal } from '../../contexts/ActionModalContext';
 import { PublicPageSkeleton } from '../../components/common/Skeleton';
-import { getWhatsAppSupportNumber } from '../../lib/dbManager';
+import { getWhatsAppSupportNumber, getWhatsAppOrdersNumber } from '../../lib/dbManager';
 
 export const ContactPage: React.FC = () => {
   const { showActionModal } = useActionModal();
@@ -23,17 +23,23 @@ export const ContactPage: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const targetPhone = getWhatsAppSupportNumber() || getWhatsAppOrdersNumber() || '919789325262';
+    const cleanTargetPhone = targetPhone.replace(/\D/g, '');
+    const waText = `*New Customer Enquiry (Website Contact Form)*\n\n• *Name:* ${formData.name.trim()}\n• *Phone:* ${formData.phone.trim()}\n${formData.email.trim() ? `• *Email:* ${formData.email.trim()}\n` : ''}• *Message / Inquiry:*\n${formData.message.trim()}\n\n_Sent from MR. VIVASAYI Store Website_`;
+    const waUrl = `https://wa.me/${cleanTargetPhone}?text=${encodeURIComponent(waText)}`;
+
     showActionModal({
-      title: 'Transmitting Customer Enquiry',
-      subtitle: `Sending message from ${formData.name || 'Customer'} to support desk...`,
-      badge: 'Enquiry Gateway',
+      title: 'Transmitting Enquiry to WhatsApp',
+      subtitle: `Formatting message from ${formData.name || 'Customer'} to WhatsApp Support...`,
+      badge: 'WhatsApp Support Gateway',
       duration: 800,
       steps: [
-        'Formatting enquiry payload & details...',
-        'Connecting to store customer service desk...',
-        'Enquiry submitted successfully!'
+        'Formatting enquiry message payload...',
+        'Connecting to WhatsApp customer support hotline...',
+        'Enquiry pre-filled and launching WhatsApp!'
       ],
       onComplete: () => {
+        window.open(waUrl, '_blank');
         setSubmitted(true);
       }
     });
@@ -230,10 +236,10 @@ export const ContactPage: React.FC = () => {
 
               <button
                 type="submit"
-                className="w-full flex items-center justify-center space-x-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-3.5 px-4 rounded-xl shadow transition-all text-sm"
+                className="w-full flex items-center justify-center space-x-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-3.5 px-4 rounded-xl shadow transition-all text-sm cursor-pointer"
               >
-                <Send className="w-4 h-4" />
-                <span>Submit Message</span>
+                <MessageSquare className="w-4 h-4 text-amber-300" />
+                <span>Send Message via WhatsApp</span>
               </button>
             </form>
           )}

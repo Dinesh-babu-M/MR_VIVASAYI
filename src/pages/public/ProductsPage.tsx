@@ -76,6 +76,28 @@ export const ProductsPage: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Auto-hide filter toolbar on mobile/tablet when any category or filter is selected
+  const handleSelectCategory = (catKey: string) => {
+    setSearchParams({ category: catKey });
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setMobileToolbarOpen(false);
+    }
+  };
+
+  const handleToggleOrganic = () => {
+    setOrganicOnly(prev => !prev);
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setMobileToolbarOpen(false);
+    }
+  };
+
+  const handleSortChange = (val: any) => {
+    setSortBy(val);
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setMobileToolbarOpen(false);
+    }
+  };
+
   React.useEffect(() => {
     async function load() {
       try {
@@ -245,8 +267,8 @@ export const ProductsPage: React.FC = () => {
         } space-y-2.5 sm:space-y-3.5`}
       >
         
-        {/* Mobile View Toggle Bar with Highlighted Button (Smooth Expand/Collapse Animation) */}
-        <div className="flex md:hidden flex-col gap-2 pb-0.5 pt-0.5">
+        {/* Mobile & Tablet View Toggle Bar with Filter Button (Smooth Expand/Collapse Animation) */}
+        <div className="flex lg:hidden flex-col gap-2 pb-0.5 pt-0.5">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 text-xs font-black text-emerald-950 dark:text-emerald-100 min-w-0">
               <SlidersHorizontal className="w-4 h-4 text-emerald-600 dark:text-amber-400 shrink-0" />
@@ -281,7 +303,7 @@ export const ProductsPage: React.FC = () => {
               ) : (
                 <>
                   <Eye className="w-3.5 h-3.5" />
-                  <span>Show Filters ▾</span>
+                  <span>Filter & Categories ▾</span>
                   {(searchQuery || organicOnly || categoryFilter !== 'all') && (
                     <span className="bg-amber-300 text-emerald-950 text-[10px] font-black px-1.5 py-0.2 rounded-full ml-0.5">
                       Active
@@ -292,7 +314,7 @@ export const ProductsPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Dedicated Mobile Grid Layout Bar (Always Visible, Crystal Clear to Find) */}
+          {/* Dedicated Mobile & Tablet Grid Layout Bar */}
           <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-emerald-100 dark:border-emerald-800/60">
             <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-emerald-900 dark:text-emerald-200">
               <LayoutGrid className="w-3.5 h-3.5 text-emerald-600 dark:text-amber-400" />
@@ -360,12 +382,12 @@ export const ProductsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Animated Expandable Filter Body for Mobile (Always visible on Desktop md:block) */}
+        {/* Animated Expandable Filter Body (Always visible on Desktop lg:block, compact size on mobile/tablet) */}
         <div
-          className={`space-y-3 sm:space-y-3.5 transition-all duration-300 ease-in-out overflow-hidden md:overflow-visible ${
+          className={`space-y-2.5 sm:space-y-3 transition-all duration-300 ease-in-out overflow-hidden lg:overflow-visible ${
             mobileToolbarOpen 
               ? 'max-h-[850px] opacity-100' 
-              : 'max-h-0 opacity-0 md:max-h-none md:opacity-100 pointer-events-none md:pointer-events-auto'
+              : 'max-h-0 opacity-0 lg:max-h-none lg:opacity-100 pointer-events-none lg:pointer-events-auto'
           }`}
         >
 
@@ -401,8 +423,8 @@ export const ProductsPage: React.FC = () => {
             {organicProductsCount > 0 && (
               <button
                 type="button"
-                onClick={() => setOrganicOnly(!organicOnly)}
-                className={`flex-1 sm:flex-initial flex items-center justify-center space-x-1.5 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer whitespace-nowrap shadow-2xs select-none ${
+                onClick={handleToggleOrganic}
+                className={`flex-1 sm:flex-initial flex items-center justify-center space-x-1.5 px-3 py-2 sm:py-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer whitespace-nowrap shadow-2xs select-none ${
                   organicOnly
                     ? 'bg-emerald-700 text-white border-emerald-700 shadow-sm ring-2 ring-emerald-500/40'
                     : 'bg-emerald-50 dark:bg-emerald-950 text-emerald-900 dark:text-emerald-200 border-emerald-200 dark:border-emerald-700 hover:bg-emerald-100 dark:hover:bg-emerald-900'
@@ -419,11 +441,11 @@ export const ProductsPage: React.FC = () => {
             )}
 
             {/* Sort Dropdown */}
-            <div className="flex-1 sm:flex-initial flex items-center space-x-2 bg-emerald-50 dark:bg-emerald-950 px-3 py-2.5 rounded-xl border border-emerald-200 dark:border-emerald-700 text-xs font-bold shadow-2xs">
+            <div className="flex-1 sm:flex-initial flex items-center space-x-2 bg-emerald-50 dark:bg-emerald-950 px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-xl border border-emerald-200 dark:border-emerald-700 text-xs font-bold shadow-2xs">
               <ArrowUpDown className="w-3.5 h-3.5 text-gray-500 dark:text-emerald-400 shrink-0" />
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
+                onChange={(e) => handleSortChange(e.target.value as any)}
                 className="bg-transparent text-gray-800 dark:text-emerald-100 font-bold focus:outline-none w-full sm:w-auto cursor-pointer"
               >
                 <option value="featured" className="dark:bg-emerald-950">Featured & Bestsellers</option>
@@ -533,12 +555,12 @@ export const ProductsPage: React.FC = () => {
           {/* Scrollable Category Pills */}
           <div 
             ref={categoryScrollRef}
-            className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-semibold scrollbar-none overscroll-x-contain touch-pan-x"
+            className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-1 text-xs font-semibold scrollbar-none overscroll-x-contain touch-pan-x"
           >
             {/* 1. All Categories */}
             <button
-              onClick={() => setSearchParams({ category: 'all' })}
-              className={`px-3.5 py-2 rounded-xl transition-all shrink-0 font-extrabold flex items-center gap-1.5 cursor-pointer ${
+              onClick={() => handleSelectCategory('all')}
+              className={`px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl transition-all shrink-0 font-extrabold flex items-center gap-1.5 cursor-pointer text-xs ${
                 categoryFilter === 'all'
                   ? 'bg-emerald-700 text-white shadow ring-2 ring-emerald-500'
                   : 'bg-emerald-50 dark:bg-emerald-950 text-gray-700 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-800 border border-emerald-200 dark:border-emerald-800'
@@ -556,8 +578,8 @@ export const ProductsPage: React.FC = () => {
             {/* 2. Special Offers - Only displayed if active offers exist */}
             {(offerProductsCount > 0 || categoryFilter === 'offers') && (
               <button
-                onClick={() => setSearchParams({ category: 'offers' })}
-                className={`px-3.5 py-2 rounded-xl transition-all shrink-0 flex items-center gap-1.5 font-extrabold cursor-pointer ${
+                onClick={() => handleSelectCategory('offers')}
+                className={`px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl transition-all shrink-0 flex items-center gap-1.5 font-extrabold cursor-pointer text-xs ${
                   categoryFilter === 'offers'
                     ? 'bg-amber-600 text-white shadow ring-2 ring-amber-400'
                     : 'bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900 border border-amber-200 dark:border-amber-800'
@@ -576,8 +598,8 @@ export const ProductsPage: React.FC = () => {
             {/* 3. Festival Offers - ONLY DISPLAYED IF FESTIVAL DEALS EXIST (> 0) */}
             {festivalProductsCount > 0 && (
               <button
-                onClick={() => setSearchParams({ category: 'festival' })}
-                className={`px-3.5 py-2 rounded-xl transition-all shrink-0 flex items-center gap-1.5 font-extrabold cursor-pointer ${
+                onClick={() => handleSelectCategory('festival')}
+                className={`px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl transition-all shrink-0 flex items-center gap-1.5 font-extrabold cursor-pointer text-xs ${
                   categoryFilter === 'festival' || categoryFilter === 'festivals'
                     ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow ring-2 ring-amber-300'
                     : 'bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900 border border-amber-200 dark:border-amber-800'
@@ -599,8 +621,8 @@ export const ProductsPage: React.FC = () => {
               return (
                 <button
                   key={cat.id}
-                  onClick={() => setSearchParams({ category: cat.id })}
-                  className={`px-3.5 py-2 rounded-xl transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+                  onClick={() => handleSelectCategory(cat.id)}
+                  className={`px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl transition-all shrink-0 flex items-center gap-1.5 cursor-pointer text-xs ${
                     categoryFilter === cat.id
                       ? 'bg-emerald-700 text-white shadow'
                       : 'bg-emerald-50 dark:bg-emerald-950 text-gray-700 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-800 border border-emerald-200 dark:border-emerald-800'

@@ -14,6 +14,8 @@ import { useActionModal } from '../../contexts/ActionModalContext';
 import { CountrySelector } from './CountrySelector';
 import { findCustomerByPhoneAndCountry, generateUniqueCustomerId } from '../../lib/countryCodes';
 import { generateOriginalOrderId } from '../../lib/sequentialIdUtils';
+import { calculateDeliveryFee, calculateTotalWeightGrams } from '../../lib/deliveryRulesEngine';
+import { Link } from 'react-router-dom';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -82,8 +84,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
   const { addNotification } = useNotifications();
   const { showActionModal } = useActionModal();
 
-  // Step State: 'CART' | 'CHECKOUT_FORM' | 'ORDER_PREVIEW' | 'SUCCESS'
-  const [drawerStep, setDrawerStep] = useState<'CART' | 'CHECKOUT_FORM' | 'ORDER_PREVIEW' | 'SUCCESS'>('CART');
+  // 4-Step Checkout Flow: 'CART' (1) -> 'CUSTOMER_CONTACT' (2) -> 'DELIVERY_ADDRESS' (3) -> 'ORDER_PREVIEW' (4) -> 'SUCCESS'
+  const [drawerStep, setDrawerStep] = useState<'CART' | 'CUSTOMER_CONTACT' | 'DELIVERY_ADDRESS' | 'ORDER_PREVIEW' | 'SUCCESS'>('CART');
+  const [agreedTerms, setAgreedTerms] = useState<boolean>(true); // Pre-checked true by default
 
   // Customer Delivery Details Form State — No default values for City, District, State, Pincode
   const [formData, setFormData] = useState({
@@ -223,6 +226,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
       }
     } catch (err) {
       console.warn('Customer lookup error:', err);
+      setCustomerLookupStatus({
+        type: 'warning',
+        message: 'Our server is not responding right now. Please check in a moment or enter your details manually.'
+      });
     } finally {
       setIsLookingUpCustomer(false);
     }
@@ -335,14 +342,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
         setPincodeLocalities([]);
         setPincodeFeedback({
           type: 'warning',
-          message: `No postal records found for "${cleanPin}". Click below to re-fetch or enter manually.`
+          message: `Our server is not responding right now or no postal records found for "${cleanPin}". Please check in a moment or enter manually.`
         });
       }
     } catch (err: any) {
       setPincodeLocalities([]);
       setPincodeFeedback({
         type: 'warning',
-        message: `Could not auto-fetch city & state for "${cleanPin}". Click below to try again or enter manually.`
+        message: 'Our server is not responding right now. Please check in a moment or enter details manually.'
       });
     } finally {
       setIsLookingUpPincode(false);
@@ -635,38 +642,51 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
     </div>
   );
 
-  // Dynamic Total Weight Calculation (Grams)
-  const totalWeightGrams = items.reduce((sum, item) => {
-    const packStr = (item.product.pack_size || '').toLowerCase();
-    let weightPerUnit = 1000; // default 1kg
-    if (packStr.includes('kg')) {
-      const num = parseFloat(packStr.replace('kg', '').trim()) || 1;
-      weightPerUnit = num * 1000;
-    } else if (packStr.includes('g') || packStr.includes('gram')) {
-      const num = parseFloat(packStr.replace(/g|gram|grams/, '').trim()) || 500;
-      weightPerUnit = num;
-    }
-    return sum + (weightPerUnit * item.quantity);
-  }, 0);
+  // Dynamic Total Weight Calculation (Grams) via deliveryRulesEngine
+  const totalWeightGrams = calculateTotalWeightGrams(
+    items.map(it => ({
+      pack_size: it.product.pack_size,
+      unit: it.product.unit,
+      quantity: it.quantity
+    }))
+  );
 
-  // Dynamic Delivery Charge Calculation based on Order Amount & State
-  const isLocal = formData.state === 'Cumbum Store / Local' || (formData.city.toLowerCase().includes('cumbum') && formData.pincode === '625516');
-  const isTN = isLocal || formData.state === 'Tamil Nadu' || formData.state === 'Theni District' || formData.state.toLowerCase().includes('tamil');
-  const deliveryFee = totalAmount >= 1000 ? 0 : (isLocal ? 25 : isTN ? 50 : 90);
+  // Dynamic Delivery Charge Calculation based on admin delivery-rules & weight tiers
+  const deliveryCalculation = calculateDeliveryFee({
+    weightGrams: totalWeightGrams,
+    state: formData.state,
+    city: formData.city,
+    pincode: formData.pincode,
+    totalAmount
+  });
+
+  const deliveryFee = deliveryCalculation.fee;
   const grandTotal = totalAmount + deliveryFee;
 
   if (!isOpen) return null;
 
-  const validateForm = () => {
+  // Validation for Step 2: Customer Contact
+  const validateCustomerContact = () => {
     const errors: Record<string, string> = {};
     if (!formData.fullName.trim()) errors.fullName = 'Customer Full Name is required';
-    if (!formData.phone.trim() || formData.phone.length < 10) errors.phone = 'Valid 10-digit WhatsApp/Phone required';
+    const cleanDigits = formData.phone.replace(/\D/g, '');
+    if (!formData.phone.trim() || cleanDigits.length < 10) errors.phone = 'Valid 10-digit WhatsApp/Phone required';
+    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      errors.email = 'Valid email address format required';
+    }
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  // Validation for Step 3: Delivery Address
+  const validateDeliveryAddress = () => {
+    const errors: Record<string, string> = {};
     if (!formData.address.trim()) errors.address = 'Street / Delivery Address is required';
     if (!formData.city.trim()) errors.city = 'City / Town is required';
 
     if (formData.country_code === 'IN' && !isManualAddressMode) {
       if (!formData.pincode.trim() || formData.pincode.replace(/\D/g, '').length !== 6) {
-        errors.pincode = 'Valid 6-digit Pincode is required';
+        errors.pincode = 'Valid 6-digit Indian Pincode is required';
       }
       if (!formData.state.trim()) {
         errors.state = 'State / Region is required';
@@ -684,17 +704,33 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
     return Object.keys(errors).length === 0;
   };
 
-  const handleProceedToPreview = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm()) return;
+  const validateAll = () => {
+    const contactValid = validateCustomerContact();
+    const addressValid = validateDeliveryAddress();
+    return contactValid && addressValid;
+  };
+
+  const handleProceedToAddress = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!validateCustomerContact()) return;
+    setDrawerStep('DELIVERY_ADDRESS');
+  };
+
+  const handleProceedToPreview = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!validateDeliveryAddress()) return;
     setDrawerStep('ORDER_PREVIEW');
   };
 
   const handleConfirmAndSendOrder = async (e?: React.FormEvent | React.MouseEvent) => {
     if (e) e.preventDefault();
     if (isProcessing) return;
-    if (!validateForm()) {
-      setDrawerStep('CHECKOUT_FORM');
+    if (!validateAll()) {
+      if (!validateCustomerContact()) {
+        setDrawerStep('CUSTOMER_CONTACT');
+      } else {
+        setDrawerStep('DELIVERY_ADDRESS');
+      }
       return;
     }
 
@@ -817,6 +853,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose }) => {
         payment_status: 'PENDING',
         delivery_address: deliveryAddressFormatted,
         notes: formData.notes ? `Customer Note: ${formData.notes}` : undefined,
+        weight_grams: totalWeightGrams,
+        courier_partner: deliveryCalculation.isLocal ? 'MR. VIVASAYI Store Express / Local Runner' : (deliveryCalculation.isTamilNadu ? 'ST Courier' : 'The Professional Couriers (TPC)'),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         items: newOrderItems
@@ -910,13 +948,22 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
               {drawerStep === 'ORDER_PREVIEW' ? (
                 <button
                   type="button"
-                  onClick={() => setDrawerStep('CHECKOUT_FORM')}
+                  onClick={() => setDrawerStep('DELIVERY_ADDRESS')}
                   className="p-1 rounded-lg text-amber-300 hover:bg-emerald-800 transition cursor-pointer"
-                  title="Back to delivery details"
+                  title="Back to delivery address"
                 >
                   <ArrowLeft className="w-5 h-5" />
                 </button>
-              ) : drawerStep === 'CHECKOUT_FORM' ? (
+              ) : drawerStep === 'DELIVERY_ADDRESS' ? (
+                <button
+                  type="button"
+                  onClick={() => setDrawerStep('CUSTOMER_CONTACT')}
+                  className="p-1 rounded-lg text-amber-300 hover:bg-emerald-800 transition cursor-pointer"
+                  title="Back to contact info"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+              ) : drawerStep === 'CUSTOMER_CONTACT' ? (
                 <button
                   type="button"
                   onClick={() => setDrawerStep('CART')}
@@ -930,12 +977,14 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
               )}
               <h2 className="text-base font-extrabold">
                 {drawerStep === 'ORDER_PREVIEW'
-                  ? 'Review & Preview Order 📋'
-                  : drawerStep === 'CHECKOUT_FORM'
-                  ? 'Enter Delivery Details'
+                  ? 'Step 4: Review & Preview Order 📋'
+                  : drawerStep === 'DELIVERY_ADDRESS'
+                  ? 'Step 3: Delivery Address 📍'
+                  : drawerStep === 'CUSTOMER_CONTACT'
+                  ? 'Step 2: Customer Contact 👤'
                   : drawerStep === 'SUCCESS'
                   ? 'Order Dispatched ✓'
-                  : 'Your Direct WhatsApp Order'}
+                  : 'Step 1: Your Direct WhatsApp Order'}
               </h2>
               {drawerStep === 'CART' && (
                 <span className="bg-amber-400 text-emerald-950 font-extrabold text-xs px-2.5 py-0.5 rounded-full">
@@ -1079,33 +1128,33 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
 
                   <button
                     type="button"
-                    onClick={() => setDrawerStep('CHECKOUT_FORM')}
-                    className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 px-4 rounded-xl shadow-lg hover:shadow-xl transition-all text-base group"
+                    onClick={() => setDrawerStep('CUSTOMER_CONTACT')}
+                    className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 px-4 rounded-xl shadow-lg hover:shadow-xl transition-all text-base group cursor-pointer active:scale-98"
                   >
-                    <MessageSquare className="w-5 h-5 text-amber-300" />
-                    <span>Proceed to WhatsApp Checkout</span>
+                    <User className="w-5 h-5 text-amber-300" />
+                    <span>Proceed to Delivery Details (Step 2 of 4)</span>
                     <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                   </button>
 
                   <p className="text-center text-xs text-gray-400 dark:text-emerald-400/60">
-                    Next: Enter your Name, Phone, and Delivery Address to format message.
+                    Next: Enter your Name & Phone Number to auto-fetch details.
                   </p>
                 </div>
               )}
             </>
           )}
 
-          {/* ================= STEP 2: CUSTOMER DELIVERY DETAILS FORM ================= */}
-          {drawerStep === 'CHECKOUT_FORM' && (
-            <form onSubmit={handleProceedToPreview} className="flex-1 flex flex-col justify-between overflow-y-auto">
-              <div className="px-6 py-4 space-y-3.5 text-xs">
+          {/* ================= STEP 2: CUSTOMER CONTACT DETAILS FORM ================= */}
+          {drawerStep === 'CUSTOMER_CONTACT' && (
+            <form onSubmit={handleProceedToAddress} className="flex-1 flex flex-col justify-between overflow-y-auto">
+              <div className="px-6 py-4 space-y-4 text-xs">
                 
                 <div className="bg-emerald-50/70 dark:bg-emerald-900/40 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800">
                   <span className="font-extrabold text-emerald-950 dark:text-emerald-100 flex items-center gap-1.5 text-xs mb-0.5">
-                    <User className="w-4 h-4 text-emerald-700 dark:text-amber-300" /> Customer & Delivery Address
+                    <User className="w-4 h-4 text-emerald-700 dark:text-amber-300" /> 1. Customer Contact Details (Step 2 of 4)
                   </span>
                   <p className="text-[11px] text-gray-600 dark:text-emerald-300">
-                    Fill in your details below. Your order will be stored in our store database and formatted directly for WhatsApp!
+                    Enter your name and WhatsApp number. Returning customers will have their details auto-filled!
                   </p>
                 </div>
 
@@ -1172,7 +1221,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                       type="button"
                       onClick={() => lookupCustomer(formData.phone, true)}
                       disabled={isLookingUpCustomer || formData.phone.replace(/\D/g, '').length < 10}
-                      className="px-2 py-0.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-[10px] rounded-lg flex items-center gap-1 transition cursor-pointer shadow-xs shrink-0"
+                      className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-[10.5px] rounded-lg flex items-center gap-1 transition cursor-pointer shadow-xs shrink-0"
                       title="Click to auto-fetch customer details from previous orders"
                     >
                       {isLookingUpCustomer ? (
@@ -1225,6 +1274,39 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                       className="w-full pl-9 pr-2 py-2 bg-gray-50 dark:bg-emerald-900/60 border border-gray-200 dark:border-emerald-700 rounded-xl font-bold text-gray-900 dark:text-emerald-100"
                     />
                   </div>
+                  {formErrors.email && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.email}</p>}
+                </div>
+
+              </div>
+
+              {/* Continue to Step 3: Delivery Address Button */}
+              <div className="p-5 bg-white dark:bg-emerald-950 border-t border-emerald-100 dark:border-emerald-800 space-y-2">
+                <button
+                  type="submit"
+                  className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 px-4 rounded-xl shadow-lg hover:shadow-xl transition-all text-base group cursor-pointer active:scale-98"
+                >
+                  <span>Continue to Delivery Address (Step 3 of 4)</span>
+                  <ArrowRight className="w-5 h-5 text-amber-300 group-hover:translate-x-1 transition-transform" />
+                </button>
+                <p className="text-center text-[11px] text-gray-500 dark:text-emerald-400/80">
+                  Step 2 of 4: Next, enter or verify your destination delivery address.
+                </p>
+              </div>
+            </form>
+          )}
+
+          {/* ================= STEP 3: DELIVERY DESTINATION & ADDRESS ================= */}
+          {drawerStep === 'DELIVERY_ADDRESS' && (
+            <form onSubmit={handleProceedToPreview} className="flex-1 flex flex-col justify-between overflow-y-auto">
+              <div className="px-6 py-4 space-y-3.5 text-xs">
+                
+                <div className="bg-emerald-50/70 dark:bg-emerald-900/40 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                  <span className="font-extrabold text-emerald-950 dark:text-emerald-100 flex items-center gap-1.5 text-xs mb-0.5">
+                    <MapPin className="w-4 h-4 text-emerald-700 dark:text-amber-300" /> 2. Delivery Destination & Address (Step 3 of 4)
+                  </span>
+                  <p className="text-[11px] text-gray-600 dark:text-emerald-300">
+                    Enter your pincode to auto-fetch State, District and City. Delivery charges are calculated based on weight & delivery rules!
+                  </p>
                 </div>
 
                 {/* Section Header: Delivery Country & Address */}
@@ -1638,17 +1720,17 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                   type="submit"
                   className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3.5 px-4 rounded-xl shadow-lg hover:shadow-xl transition-all text-base group cursor-pointer active:scale-98"
                 >
-                  <span>Preview & Review Order (Step 2 of 3) 📋</span>
+                  <span>Proceed to Order Preview (Step 4 of 4) 📋</span>
                   <ArrowRight className="w-5 h-5 text-amber-300 group-hover:translate-x-1 transition-transform" />
                 </button>
                 <p className="text-center text-[11px] text-gray-500 dark:text-emerald-400/80">
-                  Step 2 of 3: Check your items, address, and bill breakdown before final confirmation.
+                  Step 3 of 4: Check your items, address, and bill breakdown before final confirmation.
                 </p>
               </div>
             </form>
           )}
 
-          {/* ================= STEP 3: ORDER PREVIEW BEFORE FINAL SUBMIT ================= */}
+          {/* ================= STEP 4: ORDER PREVIEW BEFORE FINAL SUBMIT ================= */}
           {drawerStep === 'ORDER_PREVIEW' && (
             <div className="flex-1 flex flex-col justify-between overflow-hidden animate-fadeIn">
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3.5 text-xs">
@@ -1659,7 +1741,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                     <span className="text-xl">📋</span>
                     <div>
                       <h4 className="text-xs font-black text-emerald-950 dark:text-emerald-100 uppercase tracking-wide">
-                        Order Preview (Step 3 of 3)
+                        Order Preview & Confirmation (Step 4 of 4)
                       </h4>
                       <p className="text-[10px] text-emerald-700 dark:text-emerald-300">
                         Review your address and harvest basket before final submit
@@ -1671,22 +1753,21 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                   </span>
                 </div>
 
-                {/* Card 1: Delivery Destination Details */}
+                {/* Card 1: Customer Contact Details */}
                 <div className="bg-white dark:bg-emerald-900/30 rounded-2xl border border-gray-200 dark:border-emerald-800 p-3.5 space-y-2 shadow-xs">
                   <div className="flex items-center justify-between border-b border-gray-100 dark:border-emerald-800 pb-2">
                     <div className="flex items-center gap-1.5 text-xs font-extrabold text-gray-800 dark:text-emerald-200">
                       <User className="w-4 h-4 text-emerald-600 dark:text-amber-400" />
-                      <span>Delivery Contact & Destination</span>
+                      <span>Customer Contact</span>
                     </div>
                     <button
                       type="button"
-                      onClick={() => setDrawerStep('CHECKOUT_FORM')}
+                      onClick={() => setDrawerStep('CUSTOMER_CONTACT')}
                       className="text-[11px] font-extrabold text-emerald-700 dark:text-amber-400 hover:underline cursor-pointer"
                     >
-                      Edit Details ✏️
+                      Edit ✏️
                     </button>
                   </div>
-
                   <div className="space-y-1">
                     <p className="font-extrabold text-gray-900 dark:text-white flex items-center gap-1.5">
                       <span>{formData.fullName}</span>
@@ -1694,14 +1775,34 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                         {formData.calling_code} {formData.phone}
                       </span>
                     </p>
-                    <p className="text-gray-600 dark:text-emerald-300 text-[11px] leading-relaxed">
-                      {[formData.address, formData.city, formData.district ? `${formData.district} Dist.` : '', formData.state, formData.pincode].filter(Boolean).join(', ')}
-                    </p>
                     {formData.email && (
                       <p className="text-gray-500 dark:text-emerald-400 text-[10px]">
                         Email: {formData.email}
                       </p>
                     )}
+                  </div>
+                </div>
+
+                {/* Card 2: Delivery Destination Details */}
+                <div className="bg-white dark:bg-emerald-900/30 rounded-2xl border border-gray-200 dark:border-emerald-800 p-3.5 space-y-2 shadow-xs">
+                  <div className="flex items-center justify-between border-b border-gray-100 dark:border-emerald-800 pb-2">
+                    <div className="flex items-center gap-1.5 text-xs font-extrabold text-gray-800 dark:text-emerald-200">
+                      <MapPin className="w-4 h-4 text-emerald-600 dark:text-amber-400" />
+                      <span>Delivery Address</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDrawerStep('DELIVERY_ADDRESS')}
+                      className="text-[11px] font-extrabold text-emerald-700 dark:text-amber-400 hover:underline cursor-pointer"
+                    >
+                      Edit ✏️
+                    </button>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-gray-700 dark:text-emerald-200 text-xs font-semibold leading-relaxed">
+                      {[formData.address, formData.city, formData.district ? `${formData.district} Dist.` : '', formData.state, formData.pincode].filter(Boolean).join(', ')}
+                    </p>
                     {formData.notes && (
                       <div className="mt-1.5 p-2 bg-amber-50/80 dark:bg-emerald-950/80 rounded-lg border border-amber-200/80 dark:border-emerald-800 text-[10px] text-amber-900 dark:text-amber-300">
                         <span className="font-bold">Instructions:</span> {formData.notes}
@@ -1710,7 +1811,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                   </div>
                 </div>
 
-                {/* Card 2: Items in Order */}
+                {/* Card 3: Items in Order */}
                 <div className="bg-white dark:bg-emerald-900/30 rounded-2xl border border-gray-200 dark:border-emerald-800 p-3.5 space-y-2 shadow-xs">
                   <div className="flex items-center justify-between border-b border-gray-100 dark:border-emerald-800 pb-2">
                     <div className="flex items-center gap-1.5 text-xs font-extrabold text-gray-800 dark:text-emerald-200">
@@ -1753,7 +1854,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                   </div>
                 </div>
 
-                {/* Card 3: Final Billing Breakdown */}
+                {/* Card 4: Final Billing Breakdown */}
                 <div className="bg-emerald-950 text-white p-3.5 rounded-2xl space-y-1.5 shadow-md">
                   <h5 className="text-[11px] font-mono uppercase tracking-wider text-emerald-400 font-bold border-b border-emerald-800 pb-1 flex justify-between">
                     <span>Summary of Charges</span>
@@ -1771,7 +1872,7 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                       </div>
                     )}
                     <div className="flex justify-between">
-                      <span>Delivery Fee{formData.state ? ` (${formData.state})` : ''}:</span>
+                      <span>Delivery Fee ({deliveryCalculation.tierLabel}):</span>
                       <span className="font-mono font-bold text-amber-300">
                         {deliveryFee === 0 ? 'FREE DELIVERY ✓' : `+${formatPrice(deliveryFee)}`}
                       </span>
@@ -1783,10 +1884,28 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                   </div>
                 </div>
 
-                {/* Card 4: WhatsApp Destination Preview */}
+                {/* Card 5: Terms and Conditions Agreement (Auto-checked true) */}
+                <div className="bg-amber-50/90 dark:bg-emerald-900/40 border border-amber-200 dark:border-emerald-700 rounded-2xl p-3.5 space-y-2">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={agreedTerms}
+                      onChange={(e) => setAgreedTerms(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded text-emerald-700 focus:ring-emerald-600 border-stone-300 cursor-pointer accent-emerald-600"
+                    />
+                    <div className="text-xs text-stone-700 dark:text-emerald-200 select-none">
+                      <span className="font-bold text-stone-900 dark:text-white">I accept Terms & Conditions</span>
+                      <p className="text-[11px] text-stone-600 dark:text-emerald-300 mt-0.5">
+                        I agree to the farm-fresh produce direct WhatsApp ordering policy and payment upon order confirmation.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Card 6: WhatsApp Destination Preview */}
                 <div className="p-3 bg-gray-50 dark:bg-emerald-900/20 rounded-xl border border-gray-200 dark:border-emerald-800 text-[11px]">
                   <p className="text-gray-600 dark:text-emerald-300 leading-snug">
-                    📲 Clicking confirm will register your order in the store system and immediately open WhatsApp to dispatch your order bill to store counter.
+                    📲 Clicking submit will register your order in the store system and immediately open WhatsApp to dispatch your order bill to store counter.
                   </p>
                 </div>
               </div>
@@ -1796,10 +1915,10 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                 <button
                   type="button"
                   onClick={() => handleConfirmAndSendOrder()}
-                  disabled={isProcessing}
+                  disabled={isProcessing || !agreedTerms}
                   className={`w-full flex items-center justify-center space-x-2 font-extrabold py-3.5 px-4 rounded-xl shadow-lg transition-all text-base group cursor-pointer ${
-                    isProcessing
-                      ? 'bg-emerald-800/80 text-emerald-200 cursor-not-allowed opacity-90'
+                    isProcessing || !agreedTerms
+                      ? 'bg-stone-300 text-stone-500 cursor-not-allowed dark:bg-stone-800 dark:text-stone-500'
                       : 'bg-emerald-600 hover:bg-emerald-700 text-white hover:shadow-xl active:scale-98'
                   }`}
                 >
@@ -1811,17 +1930,23 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                   ) : (
                     <>
                       <MessageSquare className="w-5 h-5 text-amber-300" />
-                      <span>Confirm & Send Order via WhatsApp 📲</span>
+                      <span>Submit & Send Order via WhatsApp 📲</span>
                     </>
                   )}
                 </button>
 
+                {!agreedTerms && (
+                  <p className="text-center text-[11px] text-rose-500 font-bold">
+                    Please accept the Terms & Conditions above to confirm your order.
+                  </p>
+                )}
+
                 <button
                   type="button"
-                  onClick={() => setDrawerStep('CHECKOUT_FORM')}
+                  onClick={() => setDrawerStep('DELIVERY_ADDRESS')}
                   className="w-full py-1.5 text-center text-xs font-bold text-gray-500 dark:text-emerald-400 hover:text-emerald-700 hover:underline cursor-pointer"
                 >
-                  ← Back to Edit Delivery Details
+                  ← Back to Edit Delivery Address
                 </button>
               </div>
             </div>
@@ -1850,6 +1975,21 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                   <p className="text-xs text-gray-500 dark:text-emerald-300">
                     Order Ref: <span className="font-mono font-black text-emerald-800 dark:text-amber-300">#{placedOrderNumber}</span>
                   </p>
+                </div>
+
+                {/* Direct Online Order Tracking Button */}
+                <div className="pt-1">
+                  <Link
+                    to={`/track-order?orderId=${placedOrderNumber}`}
+                    onClick={() => {
+                      clearCart();
+                      onClose();
+                    }}
+                    className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-stone-900 hover:bg-stone-800 text-amber-300 hover:text-white text-xs font-bold shadow-md transition-all border border-stone-700 active:scale-98"
+                  >
+                    <Truck className="w-4 h-4 text-amber-400" />
+                    <span>Track This Order Online 🚚</span>
+                  </Link>
                 </div>
 
                 {/* Order Summary Snapshot */}

@@ -264,27 +264,24 @@ export function SettingsPage({ initialSubTab = 'delivery_rules' }: SettingsPageP
     maxAmount?: number;
     deliveryCharge: number;
   }>>([
-    // Weight-Based Rules (250g, 500g, 1kg, 2kg, 1-5kg)
-    { id: 'rule-w1', locationName: 'Cumbum Store / Local', ruleType: 'WEIGHT_BASED', weightRangeLabel: 'Below 250g', minWeightGrams: 0, maxWeightGrams: 250, deliveryCharge: 20 },
-    { id: 'rule-w2', locationName: 'Cumbum Store / Local', ruleType: 'WEIGHT_BASED', weightRangeLabel: '250g - 500g', minWeightGrams: 250, maxWeightGrams: 500, deliveryCharge: 30 },
-    { id: 'rule-w3', locationName: 'Cumbum Store / Local', ruleType: 'WEIGHT_BASED', weightRangeLabel: '500g - 1kg (1kg Order)', minWeightGrams: 500, maxWeightGrams: 1000, deliveryCharge: 40 },
-    { id: 'rule-w4', locationName: 'Cumbum Store / Local', ruleType: 'WEIGHT_BASED', weightRangeLabel: '1kg - 2kg (2kg Order)', minWeightGrams: 1000, maxWeightGrams: 2000, deliveryCharge: 55 },
-    { id: 'rule-w5', locationName: 'Cumbum Store / Local', ruleType: 'WEIGHT_BASED', weightRangeLabel: '1kg - 5kg (1-5kg Tier)', minWeightGrams: 1000, maxWeightGrams: 5000, deliveryCharge: 80 },
+    // Weight-Based Rules (Below 500g, 500g-1kg, 1kg-3kg, Above 3kg)
+    { id: 'rule-w1', locationName: 'Cumbum Store / Local', ruleType: 'WEIGHT_BASED', weightRangeLabel: 'All Weights (Local Express)', minWeightGrams: 0, maxWeightGrams: 99999, deliveryCharge: 0 },
 
-    { id: 'rule-w6', locationName: 'Tamil Nadu (Districts)', ruleType: 'WEIGHT_BASED', weightRangeLabel: 'Below 250g', minWeightGrams: 0, maxWeightGrams: 250, deliveryCharge: 35 },
-    { id: 'rule-w7', locationName: 'Tamil Nadu (Districts)', ruleType: 'WEIGHT_BASED', weightRangeLabel: '250g - 500g', minWeightGrams: 250, maxWeightGrams: 500, deliveryCharge: 45 },
-    { id: 'rule-w8', locationName: 'Tamil Nadu (Districts)', ruleType: 'WEIGHT_BASED', weightRangeLabel: '500g - 1kg (1kg Order)', minWeightGrams: 500, maxWeightGrams: 1000, deliveryCharge: 60 },
-    { id: 'rule-w9', locationName: 'Tamil Nadu (Districts)', ruleType: 'WEIGHT_BASED', weightRangeLabel: '1kg - 2kg (2kg Order)', minWeightGrams: 1000, maxWeightGrams: 2000, deliveryCharge: 85 },
-    { id: 'rule-w10', locationName: 'Tamil Nadu (Districts)', ruleType: 'WEIGHT_BASED', weightRangeLabel: '1kg - 5kg (1-5kg Tier)', minWeightGrams: 1000, maxWeightGrams: 5000, deliveryCharge: 125 },
+    { id: 'rule-w2', locationName: 'Tamil Nadu (Districts)', ruleType: 'WEIGHT_BASED', weightRangeLabel: 'Below 500g', minWeightGrams: 0, maxWeightGrams: 500, deliveryCharge: 60 },
+    { id: 'rule-w3', locationName: 'Tamil Nadu (Districts)', ruleType: 'WEIGHT_BASED', weightRangeLabel: '500g - 1kg', minWeightGrams: 500, maxWeightGrams: 1000, deliveryCharge: 70 },
+    { id: 'rule-w4', locationName: 'Tamil Nadu (Districts)', ruleType: 'WEIGHT_BASED', weightRangeLabel: '1kg - 3kg Tier', minWeightGrams: 1000, maxWeightGrams: 3000, deliveryCharge: 150 },
+    { id: 'rule-w5', locationName: 'Tamil Nadu (Districts)', ruleType: 'WEIGHT_BASED', weightRangeLabel: 'Above 3kg (Heavy Batch)', minWeightGrams: 3000, maxWeightGrams: 10000, deliveryCharge: 200 },
 
-    { id: 'rule-w11', locationName: 'Other States (Pan India)', ruleType: 'WEIGHT_BASED', weightRangeLabel: '1kg - 5kg (1-5kg Tier)', minWeightGrams: 1000, maxWeightGrams: 5000, deliveryCharge: 180 },
+    { id: 'rule-w6', locationName: 'Other States (Pan India)', ruleType: 'WEIGHT_BASED', weightRangeLabel: 'Below 500g (Courier)', minWeightGrams: 0, maxWeightGrams: 500, deliveryCharge: 90 },
+    { id: 'rule-w7', locationName: 'Other States (Pan India)', ruleType: 'WEIGHT_BASED', weightRangeLabel: '500g - 1kg (Courier)', minWeightGrams: 500, maxWeightGrams: 1000, deliveryCharge: 120 },
+    { id: 'rule-w8', locationName: 'Other States (Pan India)', ruleType: 'WEIGHT_BASED', weightRangeLabel: '1kg - 3kg (Courier)', minWeightGrams: 1000, maxWeightGrams: 3000, deliveryCharge: 240 },
+    { id: 'rule-w9', locationName: 'Other States (Pan India)', ruleType: 'WEIGHT_BASED', weightRangeLabel: 'Above 3kg (Courier)', minWeightGrams: 3000, maxWeightGrams: 10000, deliveryCharge: 350 },
 
     // Amount-Based Rules
-    { id: 'rule-a1', locationName: 'Cumbum Store / Local', ruleType: 'AMOUNT_BASED', minAmount: 0, maxAmount: 499, deliveryCharge: 30 },
-    { id: 'rule-a2', locationName: 'Cumbum Store / Local', ruleType: 'AMOUNT_BASED', minAmount: 500, maxAmount: 999999, deliveryCharge: 0 },
-    { id: 'rule-a3', locationName: 'Tamil Nadu (Districts)', ruleType: 'AMOUNT_BASED', minAmount: 0, maxAmount: 1499, deliveryCharge: 80 },
-    { id: 'rule-a4', locationName: 'Tamil Nadu (Districts)', ruleType: 'AMOUNT_BASED', minAmount: 1500, maxAmount: 999999, deliveryCharge: 0 },
-    { id: 'rule-a5', locationName: 'Other States (Pan India)', ruleType: 'AMOUNT_BASED', minAmount: 0, maxAmount: 999999, deliveryCharge: 150 },
+    { id: 'rule-a1', locationName: 'Cumbum Store / Local', ruleType: 'AMOUNT_BASED', minAmount: 0, maxAmount: 999999, deliveryCharge: 0 },
+    { id: 'rule-a2', locationName: 'Tamil Nadu (Districts)', ruleType: 'AMOUNT_BASED', minAmount: 0, maxAmount: 1499, deliveryCharge: 70 },
+    { id: 'rule-a3', locationName: 'Tamil Nadu (Districts)', ruleType: 'AMOUNT_BASED', minAmount: 1500, maxAmount: 999999, deliveryCharge: 0 },
+    { id: 'rule-a4', locationName: 'Other States (Pan India)', ruleType: 'AMOUNT_BASED', minAmount: 0, maxAmount: 999999, deliveryCharge: 120 },
   ]);
 
   const [newRuleForm, setNewRuleForm] = useState<{

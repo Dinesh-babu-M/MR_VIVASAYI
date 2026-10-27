@@ -345,6 +345,13 @@ export interface Order {
   delivery_address?: string;
   delivery_area?: string;
   notes?: string;
+  courier_partner?: string; // e.g. 'ST Courier' | 'The Professional Couriers' | 'India Post' | 'DTDC' | 'Delhivery'
+  tracking_number?: string;
+  tracking_url?: string;
+  dispatched_at?: string;
+  delivered_at?: string;
+  expected_delivery_date?: string;
+  weight_grams?: number;
   created_by?: string;
   is_deleted?: boolean;
   deleted_at?: string;

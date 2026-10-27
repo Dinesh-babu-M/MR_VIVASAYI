@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { 
   ShoppingBag, Search, Sun, Moon, Menu, X, Phone, Shield, 
-  ChevronDown, ExternalLink, Leaf, Sparkles, ArrowRight, User, Edit, Flame
+  ChevronDown, ExternalLink, Leaf, Sparkles, ArrowRight, User, Edit, Flame, Truck
 } from 'lucide-react';
 import Logo from './Logo';
 import { useAuth } from '../../contexts/AuthContext';
@@ -370,15 +370,16 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onSearchOpen }) => {
               )}
             </div>
 
-            {/* Shop All */}
+            {/* Track Order */}
             <Link 
-              to="/products" 
-              className={`relative h-full flex items-center px-2.5 xl:px-3 text-gray-700 dark:text-gray-200 hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors whitespace-nowrap ${
-                isProductsActive ? 'text-emerald-700 dark:text-emerald-400 font-bold' : ''
+              to="/track-order" 
+              className={`relative h-full flex items-center gap-1.5 px-2.5 xl:px-3 text-gray-700 dark:text-gray-200 hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors whitespace-nowrap ${
+                isActive('/track-order') ? 'text-emerald-700 dark:text-emerald-400 font-bold' : ''
               }`}
             >
-              <span>Shop All</span>
-              {isProductsActive && (
+              <Truck className="w-4 h-4 text-emerald-600 dark:text-amber-400" />
+              <span>Track Order</span>
+              {isActive('/track-order') && (
                 <span className="absolute bottom-0 left-2.5 right-2.5 h-0.75 bg-emerald-600 dark:bg-emerald-400 rounded-t-full" />
               )}
             </Link>
@@ -563,6 +564,14 @@ export const Header: React.FC<HeaderProps> = ({ onOpenCart, onSearchOpen }) => {
               <span className="bg-amber-100 text-amber-900 text-xs font-bold px-2 py-0.5 rounded-full border border-amber-300">★ {avgRating}</span>
             </Link>
           )}
+          <Link
+            to="/track-order"
+            onClick={() => setMobileMenuOpen(false)}
+            className={`block py-2.5 text-base font-medium flex items-center gap-2 ${isActive('/track-order') ? 'text-emerald-700 dark:text-emerald-400 font-bold' : 'text-gray-800 dark:text-emerald-100 hover:text-emerald-600'}`}
+          >
+            <Truck className="w-4 h-4 text-emerald-600 dark:text-amber-400" />
+            <span>Track Order</span>
+          </Link>
           <Link
             to="/about"
             onClick={() => setMobileMenuOpen(false)}

@@ -26,6 +26,7 @@ export const ProductListItem: React.FC<ProductListItemProps> = ({
   const { addItem, updateQuantity, getItem } = useCart();
   const cartItem = getItem(product.id);
   const isInCart = Boolean(cartItem && cartItem.quantity > 0);
+  const [isAdding, setIsAdding] = React.useState(false);
 
   const [internalCats, setInternalCats] = React.useState<Category[]>(categories || []);
 
@@ -58,9 +59,23 @@ export const ProductListItem: React.FC<ProductListItemProps> = ({
     navigate(`/products/${product.id}`);
   };
 
+  const handleAddToCart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isOutOfStock) return;
+    setIsAdding(true);
+    addItem(product, 1);
+    setTimeout(() => {
+      setIsAdding(false);
+    }, 850);
+  };
+
   return (
     <div
-      className={`group bg-white dark:bg-emerald-950/70 rounded-2xl border border-emerald-100 dark:border-emerald-800/80 p-2.5 sm:p-3.5 hover:shadow-lg transition-all duration-300 flex items-center justify-between gap-2.5 sm:gap-4 hover:border-emerald-400 dark:hover:border-amber-400/80 ${className}`}
+      className={`group bg-white dark:bg-emerald-950/70 rounded-2xl border p-2.5 sm:p-3.5 hover:shadow-lg transition-all duration-300 flex items-center justify-between gap-2.5 sm:gap-4 hover:border-emerald-400 dark:hover:border-amber-400/80 relative ${
+        isAdding
+          ? 'ring-2 ring-emerald-500 shadow-xl border-emerald-500 scale-[1.01]'
+          : 'border-emerald-100 dark:border-emerald-800/80'
+      } ${className}`}
     >
       {/* 1. Thumbnail Image */}
       <div 
@@ -225,15 +240,25 @@ export const ProductListItem: React.FC<ProductListItemProps> = ({
             <button
               type="button"
               disabled={isOutOfStock}
-              onClick={(e) => {
-                e.stopPropagation();
-                addItem(product, 1);
-              }}
-              className="flex items-center gap-1 px-2.5 sm:px-3.5 py-1 sm:py-1.5 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white font-bold text-xs rounded-lg shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              title={isOutOfStock ? 'Item out of stock' : 'Add to WhatsApp list'}
+              onClick={handleAddToCart}
+              className={`flex items-center gap-1 px-2.5 sm:px-3.5 py-1 sm:py-1.5 ${
+                isAdding 
+                  ? 'bg-amber-500 text-stone-950 scale-105 shadow-md font-black' 
+                  : 'bg-emerald-700 hover:bg-emerald-800 text-white font-bold'
+              } active:scale-95 text-xs rounded-lg shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer`}
+              title={isOutOfStock ? 'Item out of stock' : 'Add to cart'}
             >
-              <ShoppingBag className="w-3 h-3 text-amber-300" />
-              <span>{isOutOfStock ? 'Sold Out' : '+ Add'}</span>
+              {isAdding ? (
+                <>
+                  <CheckCircle2 className="w-3 h-3 text-emerald-950 animate-bounce" />
+                  <span>Added!</span>
+                </>
+              ) : (
+                <>
+                  <ShoppingBag className="w-3 h-3 text-amber-300" />
+                  <span>{isOutOfStock ? 'Sold Out' : '+ Add'}</span>
+                </>
+              )}
             </button>
           )}
         </div>

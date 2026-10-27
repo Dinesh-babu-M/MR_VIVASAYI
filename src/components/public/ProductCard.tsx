@@ -28,6 +28,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const { addItem, updateQuantity, getItem } = useCart();
   const cartItem = getItem(product.id);
   const isInCart = Boolean(cartItem && cartItem.quantity > 0);
+  const [isAdding, setIsAdding] = React.useState(false);
 
   const [internalCats, setInternalCats] = React.useState<Category[]>(categories || []);
 
@@ -60,10 +61,34 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     navigate(`/products/${product.id}`);
   };
 
+  const handleAddToCart = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isOutOfStock) return;
+    setIsAdding(true);
+    addItem(product, 1);
+    setTimeout(() => {
+      setIsAdding(false);
+    }, 850);
+  };
+
   return (
     <div 
-      className={`group bg-white dark:bg-emerald-950/60 ${compact ? 'rounded-2xl' : 'rounded-3xl'} border border-emerald-100 dark:border-emerald-800/80 overflow-hidden shadow-xs hover:shadow-2xl hover:shadow-emerald-950/20 transition-all duration-300 flex flex-col justify-between hover:border-emerald-400 dark:hover:border-amber-400/80 hover:-translate-y-1.5 transform-gpu ${className}`}
+      className={`group bg-white dark:bg-emerald-950/60 ${compact ? 'rounded-2xl' : 'rounded-3xl'} border overflow-hidden shadow-xs hover:shadow-2xl hover:shadow-emerald-950/20 transition-all duration-300 flex flex-col justify-between hover:border-emerald-400 dark:hover:border-amber-400/80 hover:-translate-y-1.5 transform-gpu relative ${
+        isAdding 
+          ? 'ring-2 ring-emerald-500 shadow-xl scale-[1.02] border-emerald-500' 
+          : 'border-emerald-100 dark:border-emerald-800/80'
+      } ${className}`}
     >
+      {/* Dynamic Pop Animation Overlay when Added to Cart */}
+      {isAdding && (
+        <div className="absolute inset-0 bg-emerald-900/25 backdrop-blur-[1px] flex items-center justify-center z-30 pointer-events-none animate-fadeIn">
+          <div className="bg-emerald-800 text-white font-black text-xs px-3.5 py-1.5 rounded-full shadow-2xl flex items-center gap-1.5 border border-emerald-400 animate-scaleUp">
+            <CheckCircle2 className="w-4 h-4 text-amber-300 animate-pulse" />
+            <span>Added to Cart ✓</span>
+          </div>
+        </div>
+      )}
+
       {/* Product Image & Badges */}
       <div className="relative aspect-square overflow-hidden bg-emerald-50/50 dark:bg-emerald-950 cursor-pointer" onClick={handleCardClick}>
         <img
@@ -303,19 +328,29 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               </button>
             </div>
           ) : (
-            /* Initial Add to Cart Button */
+            /* Initial Add to Cart Button with Micro-Animation */
             <button
               type="button"
               disabled={isOutOfStock}
-              onClick={(e) => {
-                e.stopPropagation();
-                addItem(product, 1);
-              }}
-              className={`flex items-center justify-center gap-1.5 ${compact ? 'w-full px-2.5 py-1.5 text-xs rounded-lg' : 'w-full sm:w-auto px-3.5 py-2 text-xs rounded-xl'} bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white font-bold shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed group-hover:bg-emerald-800 cursor-pointer`}
-              title={isOutOfStock ? 'Item currently out of stock' : 'Add to WhatsApp order list'}
+              onClick={handleAddToCart}
+              className={`flex items-center justify-center gap-1.5 ${compact ? 'w-full px-2.5 py-1.5 text-xs rounded-lg' : 'w-full sm:w-auto px-3.5 py-2 text-xs rounded-xl'} ${
+                isAdding 
+                  ? 'bg-amber-500 text-stone-950 scale-105 shadow-lg' 
+                  : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+              } active:scale-95 font-bold shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer`}
+              title={isOutOfStock ? 'Item currently out of stock' : 'Add to cart'}
             >
-              <ShoppingBag className="w-3.5 h-3.5 text-amber-300" />
-              <span>{isOutOfStock ? 'Sold Out' : '+ Add'}</span>
+              {isAdding ? (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-950 animate-bounce" />
+                  <span>Added!</span>
+                </>
+              ) : (
+                <>
+                  <ShoppingBag className="w-3.5 h-3.5 text-amber-300" />
+                  <span>{isOutOfStock ? 'Sold Out' : '+ Add'}</span>
+                </>
+              )}
             </button>
           )}
         </div>
