@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
-    "test": "node scripts/verify-all.js"
+    "test": "node scripts/test-whole-app.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
