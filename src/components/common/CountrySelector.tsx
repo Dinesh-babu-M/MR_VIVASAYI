@@ -55,7 +55,7 @@ export const CountrySelector: React.FC<CountrySelectorProps> = ({
         type="button"
         disabled={disabled}
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-700 rounded-xl text-xs font-semibold text-gray-800 dark:text-emerald-100 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/50 transition focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+        className="w-full flex items-center justify-between gap-1.5 px-2.5 py-2 bg-white dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-700 rounded-xl text-xs font-semibold text-gray-800 dark:text-emerald-100 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/50 transition focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
         title={`${selectedCountry.name} (${selectedCountry.callingCode})`}
       >
         <span className="text-base leading-none select-none">{selectedCountry.flag}</span>

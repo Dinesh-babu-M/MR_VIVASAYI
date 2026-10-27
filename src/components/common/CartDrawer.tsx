@@ -1160,17 +1160,34 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
 
                 {/* Phone Number with Country Selector & Auto-Fetch */}
                 <div>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
                     <label className="block font-bold text-gray-700 dark:text-emerald-200 text-xs">
                       WhatsApp Phone Number *
                     </label>
-                    {isLookingUpCustomer && (
-                      <span className="text-[10.5px] text-emerald-600 dark:text-amber-400 font-bold flex items-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        <span>Checking customer history...</span>
-                      </span>
-                    )}
+
+                    {/* WhatsApp Phone Auto-Fetch Button positioned in label header so phone input has full width on mobile */}
+                    <button
+                      type="button"
+                      onClick={() => lookupCustomer(formData.phone, true)}
+                      disabled={isLookingUpCustomer || formData.phone.replace(/\D/g, '').length < 10}
+                      className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white font-bold text-[11px] rounded-lg flex items-center gap-1.5 transition cursor-pointer shadow-xs shrink-0 active:scale-95"
+                      title="Click to auto-fetch customer details from previous orders"
+                    >
+                      {isLookingUpCustomer ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-300" />
+                          <span>Fetching...</span>
+                        </>
+                      ) : (
+                        <>
+                          <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-200 fill-current" />
+                          <span>Auto-Fetch</span>
+                        </>
+                      )}
+                    </button>
                   </div>
+
+                  {/* Spacious Mobile-Friendly Phone Input Row */}
                   <div className="flex gap-2">
                     <CountrySelector
                       value={formData.country_code}
@@ -1181,38 +1198,22 @@ Please confirm order availability and share UPI QR / payment details. Thank you!
                           calling_code: country.callingCode
                         }));
                       }}
-                      className="w-32 shrink-0 text-xs"
+                      className="w-24 shrink-0 text-xs"
                     />
-                    <div className="relative flex-1">
+                    <div className="relative flex-1 min-w-0">
                       <Phone className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
                       <input
                         type="tel"
                         placeholder="e.g. 9876543210"
                         value={formData.phone}
                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                        className={`w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-mono font-bold text-gray-900 dark:text-emerald-100 ${
+                        className={`w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-emerald-900/60 border rounded-xl font-mono font-bold text-sm text-gray-900 dark:text-emerald-100 placeholder:text-gray-400 placeholder:font-sans placeholder:font-normal placeholder:text-xs ${
                           formErrors.phone ? 'border-rose-500 bg-rose-50' : 'border-gray-200 dark:border-emerald-700'
                         }`}
                       />
                     </div>
-
-                    {/* WhatsApp Phone Auto-Fetch Button */}
-                    <button
-                      type="button"
-                      onClick={() => lookupCustomer(formData.phone, true)}
-                      disabled={isLookingUpCustomer || formData.phone.replace(/\D/g, '').length < 10}
-                      className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold text-[10.5px] rounded-lg flex items-center gap-1 transition cursor-pointer shadow-xs shrink-0"
-                      title="Click to auto-fetch customer details from previous orders"
-                    >
-                      {isLookingUpCustomer ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-200 fill-current" />
-                      )}
-                      <span>Auto-Fetch</span>
-                    </button>
                   </div>
-                  {formErrors.phone && <p className="text-[10px] text-rose-600 font-bold mt-0.5">{formErrors.phone}</p>}
+                  {formErrors.phone && <p className="text-[10px] text-rose-600 font-bold mt-1">{formErrors.phone}</p>}
 
                   {/* Customer Status Message: Welcome back vs Friendly new customer greeting */}
                   {customerLookupStatus && (
