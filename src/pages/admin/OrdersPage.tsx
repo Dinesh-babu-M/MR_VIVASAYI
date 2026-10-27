@@ -35,7 +35,8 @@ import {
   Scale,
   AlertCircle,
   AlertTriangle,
-  ExternalLink
+  ExternalLink,
+  Share2
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { formatPrice, formatDateTime } from '../../lib/utils';
@@ -2756,6 +2757,19 @@ MR. VIVASAYI Mart (+91 9789325262)`;
                             title="Print Amazon / Flipkart Tax Invoice"
                           >
                             <Printer className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const link = `${window.location.origin}/track-order?orderId=${order.order_number}`;
+                              navigator.clipboard.writeText(link);
+                              toast.success(`Copied Invoice & Tracking Link for #${order.order_number}!`);
+                            }}
+                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg border border-emerald-200 transition"
+                            title="Copy & Share Invoice Link"
+                          >
+                            <Share2 className="w-4 h-4" />
                           </button>
 
                           <button

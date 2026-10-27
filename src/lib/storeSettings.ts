@@ -55,8 +55,8 @@ export const DEFAULT_STORE_CONTACT_SETTINGS: StoreContactSettings = {
       state: 'Tamil Nadu',
       pincode: '625516',
       country: 'India',
-      gstin: '33AABCM1234F1Z8',
-      fssai: '12423008000451',
+      gstin: '',
+      fssai: '',
       is_primary: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -126,8 +126,14 @@ export function getStoreContactSettings(): StoreContactSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw);
+      const parsed: StoreContactSettings = JSON.parse(raw);
       if (parsed && parsed.addresses && parsed.phones) {
+        // Strip legacy placeholder dummy GSTIN / FSSAI numbers so they only appear if entered in settings
+        parsed.addresses = parsed.addresses.map(a => ({
+          ...a,
+          gstin: a.gstin === '33AABCM1234F1Z8' ? '' : (a.gstin || ''),
+          fssai: a.fssai === '12423008000451' ? '' : (a.fssai || '')
+        }));
         return parsed;
       }
     }
